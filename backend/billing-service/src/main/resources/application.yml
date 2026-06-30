@@ -1,0 +1,86 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: billing-service
+
+  datasource:
+    url: jdbc:postgresql://${BILLING_DB_HOST:localhost}:${BILLING_DB_PORT:5435}/${BILLING_DB_NAME:billing_db}
+    username: ${BILLING_DB_USER:billing}
+    password: ${BILLING_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Schema owned by Flyway, never by Hibernate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: billing-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    listener:
+      ack-mode: record
+
+# 12-Factor: business config is injectable, never hardcoded in code/image.
+app:
+  kafka:
+    topics:
+      session-closed: parking.session.closed       # CONSUME
+      invoice-calculated: billing.invoice.calculated # PRODUCE
+      payment-completed: billing.payment.completed  # PRODUCE
+  billing:
+    # Fee windows (BR-004) are wall-clock time in this zone (event timestamps are UTC).
+    zone-id: ${BILLING_ZONE_ID:Asia/Ho_Chi_Minh}
+    # BR-004-3 grace: charge overnight_flat only when a night's time inside 22:00–06:00 EXCEEDS this
+    # many minutes; at/under it those 30-min blocks fall back to the normal rate (so a few minutes
+    # around 22:00 isn't billed a whole overnight package).
+    overnight-grace-minutes: ${BILLING_OVERNIGHT_GRACE_MINUTES:60}
+  jwt:
+    # Same HS256 secret as admin-service (the issuer). Verify-only here. Fail-fast if unset.
+    secret: ${JWT_SECRET}
+  outbox:
+    poll-delay-ms: ${BILLING_OUTBOX_POLL_DELAY_MS:2000}
+    batch-size: ${BILLING_OUTBOX_BATCH_SIZE:50}
+    max-retry: ${BILLING_OUTBOX_MAX_RETRY:5}
+  # MoMo payment gateway (gate self-pay). Defaults = MoMo public SANDBOX (works out of the box for
+  # demo); override every value in .env with a real partner's credentials for production.
+  momo:
+    partner-code: ${MOMO_PARTNER_CODE:MOMO}
+    access-key: ${MOMO_ACCESS_KEY:F8BBA842ECF85}
+    secret-key: ${MOMO_SECRET_KEY:K951B6PE1waDMi640xX08PD3vg6EkVlz}
+    endpoint: ${MOMO_ENDPOINT:https://test-payment.momo.vn}
+    create-path: ${MOMO_CREATE_PATH:/v2/gateway/api/create}
+    query-path: ${MOMO_QUERY_PATH:/v2/gateway/api/query}
+    redirect-url: ${MOMO_REDIRECT_URL:http://localhost:8082/api/v1/billing/momo/return}
+    ipn-url: ${MOMO_IPN_URL:http://localhost:8082/api/v1/billing/momo/ipn}
+    request-type: ${MOMO_REQUEST_TYPE:captureWallet}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true

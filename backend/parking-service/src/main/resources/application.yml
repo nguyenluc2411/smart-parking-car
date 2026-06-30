@@ -1,0 +1,101 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: parking-service
+
+  datasource:
+    url: jdbc:postgresql://${PARKING_DB_HOST:localhost}:${PARKING_DB_PORT:5434}/${PARKING_DB_NAME:parking_db}
+    username: ${PARKING_DB_USER:parking}
+    password: ${PARKING_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Schema owned by Flyway, never by Hibernate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: parking-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    listener:
+      ack-mode: record
+
+# 12-Factor: business config is injectable, never hardcoded in code/image.
+app:
+  kafka:
+    topics:
+      plate-detected: parking.plate.detected      # CONSUME
+      gate-state: parking.gate.state              # CONSUME (sync gates.status, BR-006-2)
+      payment-completed: billing.payment.completed # CONSUME (BR-005-2 Phase 2: open exit gate after pay)
+      gate-command: parking.gate.command          # PRODUCE
+      session-created: parking.session.created    # PRODUCE
+      session-closed: parking.session.closed      # PRODUCE
+  parking:
+    # BR-001-2: minimum ALPR confidence accepted at the service boundary
+    confidence-threshold: ${PARKING_CONFIDENCE_THRESHOLD:0.85}
+    # BR-008-1: operating hours (local config; admin_db.system_config is the
+    # source of truth but lives in another service per "Database Per Service")
+    operating-hours-start: ${PARKING_OPERATING_START:06:00}
+    operating-hours-end: ${PARKING_OPERATING_END:22:00}
+    # Operating hours are wall-clock time in this zone (event timestamps are UTC)
+    zone-id: ${PARKING_ZONE_ID:Asia/Ho_Chi_Minh}
+    # BR-003-5: reserve this % of total slots as a drift buffer (recommend ~5; 0 = disabled)
+    capacity-buffer-percent: ${PARKING_CAPACITY_BUFFER_PERCENT:0}
+    # BR-006-5: a repeated EXIT scan of a car that just left (Kafka redelivery, multi-frame burst,
+    # someone re-triggering) within this many seconds is treated as the SAME exit — ignored, so it
+    # can't spawn a phantom REQUIRES_ATTENTION session or re-open the gate. 0 = disabled.
+    exit-dedup-seconds: ${PARKING_EXIT_DEDUP_SECONDS:30}
+    # BR-006-5: what the EXIT barrier does when a plate matches no ACTIVE session (unmatched/ghost exit).
+    #   require-match (default) = keep the barrier CLOSED, raise a CRITICAL alert, operator releases via
+    #     gate override — closes the forged-plate theft hole; demo-safe.
+    #   open-always = open the gate for any exit so a car is never trapped — for unattended lots given
+    #     imperfect OCR, but accepts the theft/revenue risk.
+    exit-policy: ${PARKING_EXIT_POLICY:require-match}
+  jwt:
+    # Same HS256 secret as admin-service (the issuer). Verify-only here. Fail-fast if unset.
+    secret: ${JWT_SECRET}
+  minio:
+    # Object storage cho ảnh vào/ra. Presigned URL được ký theo public-endpoint để trình duyệt/mobile
+    # truy cập được (không phải host nội bộ "minio:9000"). access/secret trống = tắt (URL trả null).
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket: ${MINIO_BUCKET:parking-frames}
+    region: ${MINIO_REGION:us-east-1}
+    secure: ${MINIO_SECURE:false}
+    presign-expiry-minutes: ${MINIO_PRESIGN_EXPIRY_MINUTES:15}
+  outbox:
+    poll-delay-ms: ${PARKING_OUTBOX_POLL_DELAY_MS:2000}
+    batch-size: ${PARKING_OUTBOX_BATCH_SIZE:50}
+    max-retry: ${PARKING_OUTBOX_MAX_RETRY:5}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true
