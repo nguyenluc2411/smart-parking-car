@@ -1,0 +1,131 @@
+{
+  "uid": "sp-system-overview",
+  "title": "Smart Parking — System Overview",
+  "tags": ["smart-parking", "system"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 100, "type": "row", "title": "Tình trạng dịch vụ", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Số dịch vụ UP",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(up)", "legendFormat": "UP" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(up)", "legendFormat": "tổng" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [ { "matcher": { "id": "byName", "options": "tổng" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } } ] } ] }
+    },
+    {
+      "id": 2,
+      "type": "bargauge",
+      "title": "Trạng thái từng service",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up", "legendFormat": "{{job}}", "instant": true }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "displayMode": "lcd", "valueMode": "color" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "max": 1,
+          "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 }, "1": { "text": "UP", "color": "green", "index": 1 } } } ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 101, "type": "row", "title": "HTTP", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HTTP request rate (req/s)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(http_server_requests_seconds_count[1m]))", "legendFormat": "{{job}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true }, "color": { "mode": "palette-classic" }, "unit": "reqps", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Tỉ lệ lỗi 5xx (%)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / clamp_min(sum by (job) (rate(http_server_requests_seconds_count[5m])), 0.0001)", "legendFormat": "{{job}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "showPoints": "never", "thresholdsStyle": { "mode": "line" } }, "color": { "mode": "palette-classic" }, "unit": "percentunit", "min": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.05 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HTTP p95 latency (s)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_requests_seconds_bucket[5m])))", "legendFormat": "{{job}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 15, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true }, "color": { "mode": "palette-classic" }, "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 102, "type": "row", "title": "Tài nguyên (JVM / DB)", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "JVM heap đã dùng (%)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (jvm_memory_used_bytes{area=\"heap\"}) / sum by (job) (jvm_memory_max_bytes{area=\"heap\"})", "legendFormat": "{{job}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true }, "color": { "mode": "palette-classic" }, "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.8 }, { "color": "red", "value": 0.9 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "HikariCP connections (active / max)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (hikaricp_connections_active)", "legendFormat": "{{job}} active" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max by (job) (hikaricp_connections_max)", "legendFormat": "{{job}} max" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10, "gradientMode": "opacity", "showPoints": "never" }, "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Process CPU usage (%)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "process_cpu_usage", "legendFormat": "{{job}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true }, "color": { "mode": "palette-classic" }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] }
+    }
+  ]
+}

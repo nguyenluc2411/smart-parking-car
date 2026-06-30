@@ -1,0 +1,96 @@
+# Prometheus alerting rules — Smart Parking System (RBL-SPS-2025)
+# Bám theo KPI ở CLAUDE.md: uptime >= 99% (06:00-22:00), latency end-to-end <= 3s,
+# nhận diện biển số >= 90%. Đánh giá mỗi `evaluation_interval` (15s).
+groups:
+  # ---------------------------------------------------------------- availability
+  - name: availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} DOWN"
+          description: "Target {{ $labels.job }} ({{ $labels.instance }}) không scrape được >1 phút. KPI uptime >= 99% đang bị vi phạm."
+
+      - alert: TargetScrapeFlapping
+        expr: changes(up[10m]) > 4
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Target {{ $labels.job }} chập chờn"
+          description: "{{ $labels.job }} ({{ $labels.instance }}) up/down >4 lần trong 10 phút — nghi kết nối DB/Kafka không ổn định."
+
+  # ------------------------------------------------------------------- edge-agent
+  - name: edge-agent
+    rules:
+      # KPI latency end-to-end <= 3s. p95 thời gian xử lý ALPR > 3000ms là cảnh báo.
+      - alert: AlprLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(edge_detection_processing_ms_bucket[5m])) by (le)) > 3000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ALPR p95 latency > 3s"
+          description: "p95 xử lý ALPR = {{ $value | humanize }}ms (>3000ms) trong 5 phút — vượt KPI latency."
+
+      # KPI nhận diện >= 90%. Tỉ lệ detect bị từ chối (rejected) cao = đọc biển kém / camera lỗi.
+      - alert: PlateRejectRateHigh
+        expr: |
+          sum(rate(edge_detect_requests_total{result="rejected"}[10m]))
+            /
+          clamp_min(sum(rate(edge_detect_requests_total[10m])), 0.0001) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tỉ lệ nhận diện thất bại > 10%"
+          description: "{{ $value | humanizePercentage }} request /detect bị rejected trong 10 phút — KPI nhận diện >= 90% có nguy cơ."
+
+      # Barie kẹt MỞ: auto-close của edge-agent phải đóng lại; OPEN liên tục >3 phút là bất thường.
+      - alert: GateStuckOpen
+        expr: edge_gate_state == 1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Barie {{ $labels.gate_id }} kẹt MỞ"
+          description: "edge_gate_state của {{ $labels.gate_id }} = OPEN >3 phút — auto-close không chạy hoặc nhận lệnh OPEN lặp."
+
+  # ----------------------------------------------------------------- jvm services
+  - name: jvm-services
+    rules:
+      - alert: JvmHeapHigh
+        expr: |
+          sum by (job) (jvm_memory_used_bytes{area="heap"})
+            /
+          sum by (job) (jvm_memory_max_bytes{area="heap"}) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} heap > 90%"
+          description: "Heap của {{ $labels.job }} ở mức {{ $value | humanizePercentage }} >5 phút — nguy cơ OOM / GC dài."
+
+      - alert: HttpServerErrorRateHigh
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            /
+          clamp_min(sum by (job) (rate(http_server_requests_seconds_count[5m])), 0.0001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} lỗi 5xx > 5%"
+          description: "{{ $value | humanizePercentage }} request trả 5xx ở {{ $labels.job }} trong 5 phút."
+
+      - alert: DbConnectionPoolExhausted
+        expr: hikaricp_connections_active >= hikaricp_connections_max
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} cạn connection pool"
+          description: "HikariCP của {{ $labels.job }} đã dùng hết connection (active >= max) >2 phút — query sẽ bị block."

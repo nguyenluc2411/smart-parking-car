@@ -1,0 +1,66 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: admin-service
+
+  datasource:
+    url: jdbc:postgresql://${ADMIN_DB_HOST:localhost}:${ADMIN_DB_PORT:5433}/${ADMIN_DB_NAME:admin_db}
+    username: ${ADMIN_DB_USER:admin}
+    password: ${ADMIN_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Schema owned by Flyway, never by Hibernate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: admin-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+# 12-Factor: business config is injectable, never hardcoded in code/image.
+app:
+  kafka:
+    # admin-service consumes every business topic to build the audit trail (service-catalog).
+    business-topics: parking.plate.detected,parking.gate.command,parking.gate.state,parking.session.created,parking.session.closed,billing.invoice.calculated,billing.payment.completed
+    # BR-007-1: any message landing on a Dead Letter Topic is a CRITICAL alert.
+    dlt-pattern: .*\.DLT
+  jwt:
+    # HS256 signing secret — MUST be >= 32 bytes. Fail-fast if unset (no default).
+    secret: ${JWT_SECRET}
+    access-token-ttl-seconds: ${JWT_ACCESS_TTL:28800}     # 8h (api-contracts expiresIn)
+    refresh-token-ttl-seconds: ${JWT_REFRESH_TTL:604800}  # 7 days
+  seed:
+    # Default ADMIN bootstrapped on first start if the users table is empty.
+    admin-username: ${ADMIN_SEED_USERNAME:admin}
+    admin-email: ${ADMIN_SEED_EMAIL:admin@parking.vn}
+    admin-password: ${ADMIN_SEED_PASSWORD:ChangeMe123!}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true

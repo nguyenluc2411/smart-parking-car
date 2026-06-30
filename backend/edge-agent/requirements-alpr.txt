@@ -1,0 +1,20 @@
+# Optional heavy ML deps — only needed when ALPR_MODE=real.
+# Install with: pip install -r requirements-alpr.txt
+#
+# CPU-only torch/torchvision: edge-agent chạy CPU (ALPR_OCR_GPU=false, không cấp --gpus),
+# nên KHÔNG kéo bộ CUDA của NVIDIA (~2GB dead weight). Pin +cpu để pip lấy wheel CPU từ
+# index PyTorch thay vì bản CUDA mặc định trên PyPI. Kết quả ALPR không đổi, image nhẹ ~2GB.
+# Muốn chạy GPU sau này: đổi 2 dòng torch/torchvision sang bản CUDA + bật ALPR_OCR_GPU=true.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+torchvision==0.17.0+cpu
+ultralytics==8.1.0
+easyocr==1.7.1
+opencv-python-headless==4.9.0.80
+numpy<2
+
+# OCR engine (ALPR_OCR_ENGINE=paddle, the default). PaddleOCR is more accurate AND ~5-13x faster on
+# CPU than EasyOCR for our plates (tools/bench_paddle.py). easyocr above stays as the fallback engine.
+# Windows note: import torch BEFORE paddleocr or the two clash on DLL load (AlprService handles this).
+paddlepaddle==3.0.0
+paddleocr==2.10.0

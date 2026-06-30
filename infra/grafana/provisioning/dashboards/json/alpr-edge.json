@@ -1,0 +1,127 @@
+{
+  "uid": "sp-alpr-edge",
+  "title": "Smart Parking — ALPR / Edge",
+  "tags": ["smart-parking", "alpr", "edge"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 100, "type": "row", "title": "KPI nhận diện", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "gauge",
+      "title": "Tỉ lệ nhận diện thành công (10m)",
+      "description": "KPI ≥ 90%. = accepted / tổng request /detect.",
+      "gridPos": { "h": 7, "w": 7, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(edge_detect_requests_total{result=\"accepted\"}[10m])) / clamp_min(sum(rate(edge_detect_requests_total[10m])), 0.0001)", "legendFormat": "thành công" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0.8 }, { "color": "green", "value": 0.9 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "ALPR p95 xử lý",
+      "description": "KPI ≤ 3000ms (camera → kết quả).",
+      "gridPos": { "h": 7, "w": 5, "x": 7, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(edge_detection_processing_ms_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "area", "textMode": "value", "justifyMode": "center" },
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 2000 }, { "color": "red", "value": 3000 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Tổng biển đã nhận diện",
+      "gridPos": { "h": 7, "w": 5, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(edge_plate_detected_total)", "legendFormat": "biển" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "area", "textMode": "value", "justifyMode": "center" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Trạng thái barie",
+      "gridPos": { "h": 7, "w": 7, "x": 17, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "edge_gate_state", "legendFormat": "{{gate_id}}", "instant": true }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [ { "type": "value", "options": { "0": { "text": "ĐÓNG", "color": "green", "index": 0 }, "1": { "text": "MỞ", "color": "orange", "index": 1 } } } ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 101, "type": "row", "title": "Lưu lượng & độ trễ", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Detect rate — accepted vs rejected (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (result) (rate(edge_detect_requests_total[2m]))", "legendFormat": "{{result}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 30, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true, "stacking": { "mode": "normal", "group": "A" } }, "color": { "mode": "palette-classic" }, "unit": "reqps", "min": 0 }, "overrides": [ { "matcher": { "id": "byName", "options": "accepted" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ] }, { "matcher": { "id": "byName", "options": "rejected" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] } ] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Độ trễ xử lý ALPR (ms) — p50 / p95, ngưỡng 3s",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(edge_detection_processing_ms_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, sum(rate(edge_detection_processing_ms_bucket[5m])) by (le))", "legendFormat": "p50" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 15, "gradientMode": "opacity", "showPoints": "never", "spanNulls": true, "thresholdsStyle": { "mode": "line" } }, "color": { "mode": "palette-classic" }, "unit": "ms", "min": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 3000 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Biển nhận diện theo hướng (xe/phút)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (direction) (rate(edge_plate_detected_total[2m])) * 60", "legendFormat": "{{direction}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 70, "gradientMode": "hue", "showPoints": "never" }, "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Lệnh barie (OPEN / CLOSE) — rate",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (command) (rate(edge_gate_commands_total[2m]))", "legendFormat": "{{command}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["last"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "showPoints": "auto" }, "color": { "mode": "palette-classic" }, "unit": "short", "min": 0 }, "overrides": [] }
+    }
+  ]
+}

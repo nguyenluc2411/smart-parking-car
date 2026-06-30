@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Parking — Demo ALPR</title>
+<script src="/qrcode.min.js"></script>
+<style>
+  :root { --bg:#0f1221; --card:#1a1f36; --line:#2b3157; --txt:#e7ebff; --mut:#9aa3c7;
+          --ok:#22c55e; --bad:#ef4444; --accent:#a21caf; --momo:#a50064; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:14px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:18px; margin:0; } header .sub { color:var(--mut); font-size:13px; }
+  .wrap { display:grid; grid-template-columns: 1.25fr 0.75fr; gap:18px; padding:18px 22px; max-width:1280px; margin:0 auto; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; }
+  .camwrap { position:relative; }
+  video, #shot { width:100%; border-radius:10px; background:#000; aspect-ratio:3/4; max-height:78vh; object-fit:cover; }
+  @media (min-width: 901px) { video, #shot { aspect-ratio:4/3; } }
+  .guide { position:absolute; left:8%; right:8%; top:38%; bottom:38%; border:3px dashed rgba(255,255,255,.8);
+           border-radius:10px; pointer-events:none; box-shadow:0 0 0 2000px rgba(0,0,0,.18); }
+  .guide span { position:absolute; top:-24px; left:0; color:#fff; font-size:12px; font-weight:600; text-shadow:0 1px 3px #000; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  button { cursor:pointer; border:0; border-radius:10px; padding:11px 16px; font-size:14px; font-weight:600; color:#fff; }
+  .in { background:#2563eb; } .out { background:#d97706; } .ghost { background:#2b3157; } .momo { background:var(--momo); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .plate { font-size:40px; font-weight:800; letter-spacing:2px; text-align:center; padding:14px;
+           border:2px dashed var(--line); border-radius:12px; margin:6px 0; background:#0e1330; min-height:74px;
+           display:flex; align-items:center; justify-content:center; }
+  .meta { display:flex; justify-content:space-between; color:var(--mut); font-size:13px; }
+  .gates { display:flex; gap:16px; margin-top:6px; }
+  .gate { flex:1; background:#0e1330; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .gate .name { font-size:12px; color:var(--mut); }
+  .barrier { height:60px; position:relative; margin:10px 4px 4px; }
+  .post { position:absolute; left:8px; bottom:0; width:10px; height:42px; background:#3a4170; border-radius:3px; }
+  .arm { position:absolute; left:14px; bottom:36px; width:120px; height:9px; background:repeating-linear-gradient(90deg,#ef4444 0 14px,#fff 14px 28px);
+         transform-origin:left center; transition:transform .6s ease; border-radius:3px; }
+  .arm.open { transform:rotate(-78deg); }
+  .state { font-weight:700; font-size:13px; margin-top:6px; }
+  .state.open { color:var(--ok); } .state.closed { color:var(--mut); }
+  .msg { margin-top:10px; font-size:14px; min-height:20px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  #qrbox { display:none; text-align:center; margin-top:12px; }
+  #qrbox img, #qr canvas, #qr img { background:#fff; padding:10px; border-radius:10px; }
+  .amount { font-size:26px; font-weight:800; margin:6px 0; }
+  .pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+  .pill.pending { background:#3a2f00; color:#fbbf24; } .pill.paid { background:#06341c; color:#34d399; }
+  a.link { color:#7dd3fc; font-size:12px; }
+  .statusbar { display:flex; gap:22px; align-items:center; flex-wrap:wrap;
+               padding:10px 22px; border-bottom:1px solid var(--line); background:#141931; }
+  .statusbar .stat { display:flex; align-items:baseline; gap:6px; }
+  .statusbar .stat b { font-size:20px; font-weight:800; }
+  .statusbar .stat.ok b { color:var(--ok); }
+  .statusbar .lbl { color:var(--mut); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🅿️ Smart Parking — Demo ALPR</h1>
+  <span class="sub">Camera → nhận diện biển → barie → thanh toán MoMo</span>
+</header>
+
+<div class="statusbar" id="statusbar">
+  <span class="stat"><b id="aOccupied">—</b><span class="lbl">xe trong bãi</span></span>
+  <span class="stat ok"><b id="aEmpty">—</b><span class="lbl">chỗ trống</span></span>
+  <span class="stat"><b id="aTotal">—</b><span class="lbl">tổng chỗ</span></span>
+  <span class="stat" id="aFull" style="display:none;color:var(--bad)">⛔ HẾT CHỖ</span>
+</div>
+
+<div class="wrap">
+  <!-- LEFT: camera + scan -->
+  <div class="card">
+    <h2>1 · Camera cổng — đưa BIỂN SỐ vào khung, càng gần càng chính xác</h2>
+    <div class="camwrap">
+      <video id="cam" autoplay playsinline muted></video>
+      <div class="guide"><span>▸ Đưa biển số vào khung này (cận cảnh)</span></div>
+    </div>
+    <canvas id="shot" style="display:none"></canvas>
+    <div class="row">
+      <button class="in"  id="btnIn">🚗 Quét XE VÀO</button>
+      <button class="out" id="btnOut">🚙 Quét XE RA</button>
+      <button class="ghost" id="btnFlip">🔄 Đổi camera</button>
+      <label class="ghost" style="padding:11px 16px;border-radius:10px;">📁 Ảnh
+        <input id="file" type="file" accept="image/*" style="display:none">
+      </label>
+      <label class="ghost" style="padding:11px 16px;border-radius:10px;">📹 Video
+        <input id="video" type="file" accept="video/*" style="display:none">
+      </label>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <!-- RIGHT: result + barrier + QR -->
+  <div class="card">
+    <h2>2 · Kết quả nhận diện</h2>
+    <div id="scanned" style="display:none; margin-bottom:10px;">
+      <img id="preview" alt="ảnh đang quét" style="width:100%; border-radius:10px; max-height:200px; object-fit:contain; background:#000;">
+      <div class="meta" style="margin-top:6px"><span id="scanwhat">—</span><span id="scanstate">—</span></div>
+    </div>
+    <div class="plate" id="plate">—</div>
+    <div class="meta"><span id="conf">confidence: —</span><span id="lat">—</span></div>
+
+    <h2 style="margin-top:18px">3 · Barie</h2>
+    <div class="gates">
+      <div class="gate">
+        <div class="name">GATE_ENTRY_01 (VÀO)</div>
+        <div class="barrier"><div class="post"></div><div class="arm" id="armIn"></div></div>
+        <div class="state closed" id="stIn">CLOSED</div>
+      </div>
+      <div class="gate">
+        <div class="name">GATE_EXIT_01 (RA)</div>
+        <div class="barrier"><div class="post"></div><div class="arm" id="armOut"></div></div>
+        <div class="state closed" id="stOut">CLOSED</div>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:center;margin-top:12px">
+      <button class="momo" id="btnPay" style="display:none">💳 Hiện QR thanh toán</button>
+    </div>
+
+    <div id="qrbox">
+      <h2 style="margin-top:18px">4 · Thanh toán MoMo</h2>
+      <div class="amount" id="amt">—</div>
+      <div id="qr"></div>
+      <div style="margin-top:8px"><a class="link" id="paylink" target="_blank">Mở trang thanh toán MoMo ↗</a></div>
+      <div class="row" style="justify-content:center">
+        <button class="momo" id="btnCheck">🔄 Kiểm tra đã thanh toán</button>
+      </div>
+      <div style="margin-top:8px"><span class="pill pending" id="payst">PENDING</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const cam = $('#cam'), shot = $('#shot');
+let lastPlate = null, lastSession = null, lastOrder = null;
+
+// --- webcam (ưu tiên camera SAU trên điện thoại; có nút đổi trước/sau) ---
+let facing = 'environment', stream = null;
+async function startCamera(f) {
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: f }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    cam.srcObject = stream; facing = f;
+  } catch (e) {
+    setMsg('Không mở được camera ('+f+') — bấm 🔄 Đổi camera hoặc dùng 📁 Ảnh.', 'bad');
+  }
+}
+startCamera(facing);
+
+function setMsg(t, cls='') { const m=$('#msg'); m.textContent=t; m.className='msg '+cls; }
+
+function frameBlob() {
+  return new Promise(res => {
+    const w = cam.videoWidth||1280, h = cam.videoHeight||960;
+    shot.width=w; shot.height=h; shot.getContext('2d').drawImage(cam,0,0,w,h);
+    shot.toBlob(b=>res(b), 'image/jpeg', 0.92);
+  });
+}
+
+let busy = false, prevUrl = null;
+function setBusy(b) { busy = b; ['#btnIn','#btnOut','#btnFlip','#file','#video'].forEach(s => { const el=$(s); if(el) el.disabled=b; }); }
+
+// Xóa kết quả của lần quét TRƯỚC để không nhầm với lần hiện tại (lỗi #1).
+function resetResult() {
+  $('#plate').textContent = '—';
+  $('#conf').textContent = 'confidence: —';
+  $('#lat').textContent = '—';
+  $('#btnPay').style.display = 'none';
+  $('#qrbox').style.display = 'none';
+  lastPlate = null;
+}
+
+// Hiện ảnh ĐANG quét + chiều, để biết kết quả thuộc ảnh nào (lỗi #2).
+function showPreview(blob, direction) {
+  if (prevUrl) URL.revokeObjectURL(prevUrl);
+  prevUrl = URL.createObjectURL(blob);
+  $('#preview').src = prevUrl;
+  $('#scanned').style.display = 'block';
+  $('#scanwhat').textContent = direction==='IN' ? '🚗 Quét: XE VÀO' : '🚙 Quét: XE RA';
+  $('#scanstate').textContent = '⏳ đang nhận diện…';
+}
+
+// Chụp N khung của CÙNG một xe, cách nhau gapMs — để burst bỏ phiếu (loại khung mờ/lỗi).
+async function captureFrames(n, gapMs) {
+  const frames = [];
+  for (let i=0;i<n;i++) { frames.push(await frameBlob()); if (i<n-1) await new Promise(r=>setTimeout(r, gapMs)); }
+  return frames;
+}
+
+async function scan(direction, providedFrames) {
+  if (busy) return;                       // chặn quét chồng khi lần trước chưa xong
+  setBusy(true);
+  resetResult();
+  let frames;
+  if (providedFrames) {
+    frames = providedFrames;              // ảnh upload: 1 khung
+  } else {
+    setMsg('📸 Đang chụp 5 khung của xe… giữ yên & đưa biển vào khung.');
+    frames = await captureFrames(5, 200); // camera: 5 khung trong ~1s
+  }
+  showPreview(frames[frames.length-1], direction);
+  const gate = direction==='IN' ? 'GATE_ENTRY_01' : 'GATE_EXIT_01';
+  setMsg('⏳ Đang nhận diện '+(direction==='IN'?'XE VÀO':'XE RA')+' ('+frames.length+' khung, bỏ phiếu)…');
+  const fd = new FormData();
+  frames.forEach((b,i)=> fd.append('images', b, 'f'+i+'.jpg'));
+  fd.append('gate_id', gate); fd.append('direction', direction);
+  try {
+    const r = await fetch('/api/detect_burst', { method:'POST', body:fd });
+    const data = await r.json().catch(()=>({}));
+    if (r.status === 200 && data.published) {
+      lastPlate = data.plateNumber;
+      $('#plate').textContent = data.plateNumber;
+      $('#conf').textContent = 'conf ' + (data.confidence*100).toFixed(1) + '% · '
+                               + data.votes + '/' + data.framesSubmitted + ' khung trùng';
+      $('#lat').textContent = (data.processingMs||0) + ' ms';
+      $('#scanstate').textContent = '✅ đọc được ('+data.votes+' phiếu)';
+      setMsg('⏳ Đã đọc '+data.plateNumber+' — đang chờ hệ thống quyết định…');
+      // Hỏi KẾT QUẢ THẬT (parking/billing) thay vì đoán "barie đang mở".
+      await resolveOutcome(direction, data.plateNumber);
+    } else if (r.status === 202 || (data && data.accepted === false)) {
+      $('#scanstate').textContent = '⚠️ chưa chắc chắn';
+      const guess = data.plateNumber ? (' — đoán "'+data.plateNumber+'" nhưng chỉ '+(data.votes||0)+' khung trùng') : '';
+      setMsg('⚠️ Các khung chưa đồng thuận'+guess+'. Đưa biển GẦN & THẲNG, đủ sáng, giữ yên rồi quét lại.', 'bad');
+    } else {
+      $('#scanstate').textContent = '❌ lỗi '+r.status;
+      setMsg('Lỗi '+r.status+': '+(data.detail||data.error||JSON.stringify(data)), 'bad');
+    }
+  } catch(e) {
+    $('#scanstate').textContent = '❌ lỗi kết nối';
+    setMsg('Lỗi kết nối edge-agent: '+e, 'bad');
+  } finally {
+    setBusy(false);
+  }
+}
+
+$('#btnFlip').onclick = ()=> { if(!busy) startCamera(facing === 'environment' ? 'user' : 'environment'); };
+$('#btnPay').onclick = ()=> { if (lastPlate) loadMoMo(lastPlate); };
+$('#btnIn').onclick  = ()=> scan('IN',  null);   // null = chụp 5 khung từ camera
+$('#btnOut').onclick = ()=> scan('OUT', null);
+// Ảnh từ file: hỏi chiều TRƯỚC khi quét; reset value để chọn lại đúng file vẫn chạy.
+$('#file').addEventListener('click', ()=>{ window.fileDir = confirm('OK = Xe VÀO, Cancel = Xe RA') ? 'IN':'OUT'; });
+$('#file').onchange  = e => { const f=e.target.files[0]; if(f) scan(window.fileDir||'IN', [f]); e.target.value=''; };
+
+// --- VIDEO upload: thay cho camera quay thật. Trích N khung ở client (video + canvas) rồi gửi
+//     cùng một burst /detect_burst → bầu chọn y như chụp 5 khung từ camera, không đụng backend. ---
+function seekTo(v, t) {
+  return new Promise((res) => {
+    const onSeeked = () => { v.removeEventListener('seeked', onSeeked); res(); };
+    v.addEventListener('seeked', onSeeked);
+    v.currentTime = t;
+  });
+}
+async function framesFromVideo(file, n) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.src = url; v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.style.position = 'fixed'; v.style.left = '-9999px'; document.body.appendChild(v);
+  try {
+    await new Promise((res, rej) => {
+      v.onloadeddata = res;
+      v.onerror = () => rej(new Error('không đọc được video (định dạng?)'));
+      setTimeout(() => rej(new Error('timeout đọc video')), 15000);
+    });
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+    const cvs = document.createElement('canvas');
+    const frames = [];
+    for (let i = 0; i < n; i++) {
+      // lấy mẫu đều trong 80% giữa clip (bỏ đầu/cuối); nếu duration không xác định, mỗi khung +0.4s
+      const t = dur ? dur * (0.1 + 0.8 * (n === 1 ? 0 : i / (n - 1))) : i * 0.4;
+      await seekTo(v, t);
+      cvs.width = v.videoWidth || 1280; cvs.height = v.videoHeight || 720;
+      cvs.getContext('2d').drawImage(v, 0, 0, cvs.width, cvs.height);
+      const blob = await new Promise(r => cvs.toBlob(r, 'image/jpeg', 0.92));
+      if (blob) frames.push(blob);
+    }
+    return frames;
+  } finally {
+    document.body.removeChild(v); URL.revokeObjectURL(url);
+  }
+}
+$('#video').addEventListener('click', ()=>{ window.vidDir = confirm('OK = Xe VÀO, Cancel = Xe RA') ? 'IN':'OUT'; });
+$('#video').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f || busy) return;
+  setBusy(true);
+  setMsg('🎞️ Đang trích khung từ video…');
+  let frames;
+  try { frames = await framesFromVideo(f, 12); }
+  catch (err) { setBusy(false); return setMsg('Lỗi đọc video: ' + err.message, 'bad'); }
+  setBusy(false);
+  if (!frames.length) return setMsg('Không trích được khung nào từ video.', 'bad');
+  scan(window.vidDir || 'IN', frames);   // gửi cả 12 khung → /detect_burst bầu chọn
+};
+
+// --- MoMo QR ---
+async function loadMoMo(plate, tries) {
+  tries = tries || 0;
+  setMsg('⏳ Tạo mã QR thanh toán MoMo…');
+  let r, d;
+  try { r = await fetch('/api/momo?plate='+encodeURIComponent(plate), { method:'POST' }); d = await r.json().catch(()=>({})); }
+  catch(e){ return setMsg('Lỗi gọi MoMo: '+e, 'bad'); }
+  if (r.status !== 200 || !(d.qrCodeUrl || d.payUrl)) {
+    if (tries < 6) return setTimeout(()=>loadMoMo(plate, tries+1), 1500);  // chờ billing tạo hóa đơn
+    return setMsg('Chưa tạo được QR MoMo: '+(d.error||d.message||('HTTP '+r.status)), 'bad');
+  }
+  lastSession = d.sessionId; lastOrder = d.orderId;
+  $('#amt').textContent = Number(d.amount).toLocaleString('vi-VN') + ' ₫';
+  $('#paylink').href = d.payUrl || '#';
+  // qrCodeUrl = payload MoMo: mở app MoMo quét QR này là thanh toán luôn (không cần bấm link).
+  const payload = d.qrCodeUrl || d.payUrl;
+  const qr = $('#qr'); qr.innerHTML = '';
+  try { new QRCode(qr, { text: payload, width:240, height:240, correctLevel: QRCode.CorrectLevel.M }); }
+  catch(e){ qr.innerHTML = '<img width=240 src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='+encodeURIComponent(payload)+'">'; }
+  $('#payst').className = 'pill pending'; $('#payst').textContent = 'PENDING';
+  $('#qrbox').style.display = 'block';
+  $('#qrbox').scrollIntoView({ behavior:'smooth', block:'center' });
+  setMsg('💳 Mở app MoMo → Quét mã QR này → thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
+}
+
+$('#btnCheck').onclick = async ()=> {
+  if (!lastSession) return;
+  $('#btnCheck').disabled=true;
+  try {
+    const r = await fetch('/api/momo/status?session_id='+lastSession+'&order_id='+encodeURIComponent(lastOrder));
+    const d = await r.json();
+    const paid = d.status==='PAID';
+    $('#payst').className='pill '+(paid?'paid':'pending');
+    $('#payst').textContent = d.status + (paid?' ✓':'');
+    setMsg(paid ? '✅ Đã thanh toán! Đã phát event billing.payment.completed.' : 'ℹ️ '+(d.message||'Chưa thanh toán'), paid?'ok':'');
+  } finally { $('#btnCheck').disabled=false; }
+};
+
+// --- KẾT QUẢ THẬT sau nhận diện (admit/deny/whitelist) từ parking + billing ---
+async function resolveOutcome(direction, plate) {
+  try {
+    const r = await fetch('/api/outcome?plate='+encodeURIComponent(plate)+'&direction='+direction);
+    const o = await r.json();
+    if (o.availability) renderAvail(o.availability);
+    setMsg(o.message || '—', o.barrier ? 'ok' : 'bad');
+    $('#scanstate').textContent = o.barrier ? '✅ barie mở' : '⛔ barie không mở';
+    // Chỉ tạo QR khi hóa đơn PENDING. Xe whitelist (WAIVED) / đã trả → KHÔNG tạo QR (hết vòng lặp).
+    if (direction === 'OUT' && o.needsPayment) {
+      $('#btnPay').style.display = 'inline-block';
+      loadMoMo(plate);
+    } else {
+      $('#btnPay').style.display = 'none';
+      $('#qrbox').style.display = 'none';
+    }
+  } catch (e) {
+    setMsg('Lỗi lấy kết quả xử lý: ' + e, 'bad');
+  }
+}
+
+// --- số xe trong bãi / chỗ trống (nguồn: parking-service) ---
+function renderAvail(a) {
+  if (!a || a.totalSlots == null) return;
+  $('#aOccupied').textContent = a.occupiedSlots;
+  $('#aEmpty').textContent = a.emptySlots;
+  $('#aTotal').textContent = a.totalSlots;
+  $('#aFull').style.display = (a.emptySlots === 0) ? 'inline' : 'none';
+}
+async function pollAvail() {
+  try { const r = await fetch('/api/availability'); renderAvail(await r.json()); } catch(e){}
+}
+setInterval(pollAvail, 5000); pollAvail();
+
+// --- barrier state polling (trạng thái thật từ edge-agent) ---
+async function pollGates() {
+  try {
+    const r = await fetch('/api/health'); const h = await r.json();
+    const g = h.gates||{};
+    setGate('In',  g.GATE_ENTRY_01); setGate('Out', g.GATE_EXIT_01);
+  } catch(e){}
+}
+function setGate(suffix, state) {
+  const open = state==='OPEN';
+  $('#arm'+suffix).classList.toggle('open', open);
+  const st = $('#st'+suffix); st.textContent = state||'—'; st.className='state '+(open?'open':'closed');
+}
+setInterval(pollGates, 1500); pollGates();
+</script>
+</body>
+</html>

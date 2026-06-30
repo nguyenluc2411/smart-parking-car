@@ -1,0 +1,9 @@
+# Core runtime (light — enough to run the simulator + Kafka end-to-end without ML deps)
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+aiokafka==0.10.0
+pydantic==2.6.4
+pydantic-settings==2.2.1
+python-multipart==0.0.9
+prometheus-client==0.20.0
+minio==7.2.7              # object storage cho ảnh chụp xe vào/ra (truy vết)
