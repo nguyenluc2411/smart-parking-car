@@ -94,3 +94,45 @@ groups:
         annotations:
           summary: "{{ $labels.job }} cạn connection pool"
           description: "HikariCP của {{ $labels.job }} đã dùng hết connection (active >= max) >2 phút — query sẽ bị block."
+
+  # ------------------------------------------------------------------ host (node-exporter)
+  - name: host
+    rules:
+      - alert: HostHighCpu
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU host > 85%"
+          description: "CPU sử dụng {{ $value | humanize }}% >5 phút — host (VM) đang quá tải, có thể ảnh hưởng latency ALPR."
+
+      - alert: HostHighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAM host > 90%"
+          description: "RAM đã dùng {{ $value | humanize }}% >5 phút — nguy cơ OOM-kill container."
+
+      - alert: HostLowDisk
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 90
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ổ đĩa {{ $labels.mountpoint }} > 90%"
+          description: "Dung lượng {{ $labels.mountpoint }} đã dùng {{ $value | humanize }}% — DB/Kafka/MinIO có thể ghi lỗi."
+
+  # ------------------------------------------------------------------ kafka (kafka-exporter)
+  - name: kafka
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer lag cao: {{ $labels.consumergroup }}/{{ $labels.topic }}"
+          description: "Lag = {{ $value | humanize }} message >5 phút — consumer ({{ $labels.consumergroup }}) xử lý không kịp, event bị trễ."

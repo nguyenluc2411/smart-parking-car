@@ -29,7 +29,7 @@ BILLING_URL = os.getenv("BILLING_URL", "http://localhost:8082")
 ADMIN_URL = os.getenv("ADMIN_URL", "http://localhost:8083")
 EDGE_API_KEY = os.getenv("EDGE_API_KEY", "8f7a2d1c9e4b6f8a3d5e7c1b9a2f4d6e")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PASS = os.getenv("ADMIN_PASS", "ChangeMe123!")
+ADMIN_PASS = os.getenv("ADMIN_PASS", "12345678!")  # khớp ADMIN_SEED_PASSWORD trong .env
 
 INDEX = Path(__file__).with_name("index.html")
 app = FastAPI(title="smart-parking-demo")

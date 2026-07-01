@@ -30,6 +30,12 @@ timeout /t 25 /nobreak >nul
 echo [4/4] Chuan bi chung chi HTTPS theo IP HIEN TAI roi khoi dong trang demo...
 cd backend\edge-agent
 ".venv-alpr\Scripts\python.exe" "..\..\frontend\demo\setup_cert.py"
+if errorlevel 10 (
+  echo    IP LAN thay doi -^> tao lai parking-service de link anh MinIO tro dung host...
+  cd /d "D:\SU26\MSS301\Group_Project\smart-parking-car"
+  docker compose up -d parking-service
+  cd backend\edge-agent
+)
 echo.
 echo    (Giu cua so DEN nay mo trong luc demo. Dong cua so = tat trang demo.)
 echo.

@@ -22,6 +22,8 @@ CERT_DIR = Path(__file__).with_name("certs")
 CERT = CERT_DIR / "cert.pem"
 KEY = CERT_DIR / "key.pem"
 PORT = 8095
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"  # project-root .env
+MINIO_API_PORT = 9000
 
 
 def lan_ip() -> str:
@@ -71,6 +73,26 @@ def regenerate(ip: str) -> None:
     ], check=True)
 
 
+def sync_minio_endpoint(ip: str) -> bool:
+    """Point MINIO_PUBLIC_ENDPOINT at the current LAN IP so presigned image URLs are reachable
+    from other devices (phone/other laptop), not just the host. Returns True if .env changed
+    (caller must recreate parking-service to pick it up)."""
+    if not ENV_FILE.exists():
+        return False
+    want = f"MINIO_PUBLIC_ENDPOINT={ip}:{MINIO_API_PORT}"
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    changed = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("MINIO_PUBLIC_ENDPOINT="):
+            if line.strip() != want:
+                lines[i] = want
+                changed = True
+            break
+    if changed:
+        ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return changed
+
+
 def main() -> None:
     ip = lan_ip()
     if cert_covers(ip):
@@ -78,12 +100,17 @@ def main() -> None:
     else:
         regenerate(ip)
         status = f"da sinh cert moi cho IP {ip} (dien thoai can bam Tin tuong/Proceed lan dau)"
+    minio_changed = sync_minio_endpoint(ip)
     print("=" * 60)
     print(f"  {status}")
+    print(f"  MINIO_PUBLIC_ENDPOINT -> {ip}:{MINIO_API_PORT}"
+          + (" (DA DOI — parking-service se duoc tao lai)" if minio_changed else " (khong doi)"))
     print("  MO TREN:")
     print(f"     Laptop:     https://localhost:{PORT}")
     print(f"     Dien thoai: https://{ip}:{PORT}   (cung Wi-Fi)")
     print("=" * 60)
+    # Exit code 10 = MinIO endpoint changed, so start-demo.bat recreates parking-service.
+    sys.exit(10 if minio_changed else 0)
 
 
 if __name__ == "__main__":

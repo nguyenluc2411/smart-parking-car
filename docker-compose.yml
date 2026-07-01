@@ -5,7 +5,7 @@
 # Startup is ordered via healthchecks (DBs + Kafka -> services -> monitoring).
 #
 # NOTE: the Next.js admin-dashboard (:3000) is not part of this repo yet, so it is omitted.
-#       alertmanager / node-exporter / kafka-exporter are optional and also omitted (see docs).
+#       alertmanager is optional and omitted (see docs). node-exporter / kafka-exporter are wired.
 
 name: smart-parking-car
 
@@ -248,6 +248,30 @@ services:
     networks: [parking-net]
 
   # --------------------------------------------------------------- monitoring
+  # Host CPU/RAM/disk/network metrics. On Docker Desktop the "host" is the Linux VM,
+  # not Windows — metrics reflect the VM, which is still useful for the stack's own load.
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
+    container_name: node-exporter
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - '/:/host:ro,rslave'
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    networks: [parking-net]
+
+  # Kafka broker/topic/consumer-group lag metrics (kafka_consumergroup_lag, ...).
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka:9092"]
+    ports:
+      - "${KAFKA_EXPORTER_PORT:-9308}:9308"
+    depends_on:
+      kafka: {condition: service_healthy}
+    networks: [parking-net]
+
   prometheus:
     image: prom/prometheus:v2.51.0
     container_name: prometheus
@@ -262,6 +286,8 @@ services:
       - billing-service
       - admin-service
       - edge-agent
+      - node-exporter
+      - kafka-exporter
     networks: [parking-net]
 
   grafana:
