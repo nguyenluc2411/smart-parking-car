@@ -155,12 +155,30 @@ async def momo_create(plate: str):
         return JSONResponse(status_code=mr.status_code, content=data)
 
 
-@app.get("/api/momo/status")
-async def momo_status(session_id: str, order_id: str):
-    """Query + reconcile MoMo payment status for a session (orderId from the create call)."""
+@app.post("/api/payos")
+async def payos_create(plate: str):
+    """Find the plate's latest CLOSED session and create a PayOS payment for its invoice."""
+    async with httpx.AsyncClient(timeout=60) as c:
+        sr = await _auth_get(c, f"{PARKING_URL}/api/v1/sessions",
+                             params={"plate": plate, "status": "CLOSED", "size": 1, "page": 0})
+        items = (sr.json().get("data") or {}).get("content") or []
+        if not items:
+            return JSONResponse(status_code=404,
+                                content={"error": f"Chưa có phiên đã ĐÓNG cho biển {plate}"})
+        session_id = items[0]["id"]
+        pr = await _auth_post(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/payos")
+        data = pr.json().get("data") or pr.json()
+        if isinstance(data, dict):
+            data["sessionId"] = session_id
+        return JSONResponse(status_code=pr.status_code, content=data)
+
+
+@app.get("/api/payos/status")
+async def payos_status(session_id: str, order_code: str):
+    """Query + reconcile PayOS payment status for a session."""
     async with httpx.AsyncClient(timeout=30) as c:
-        r = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/momo/status",
-                            params={"orderId": order_id})
+        r = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/payos/status",
+                            params={"orderCode": order_code})
         return JSONResponse(status_code=r.status_code, content=r.json().get("data") or r.json())
 
 

@@ -1,0 +1,6 @@
+# Minimal deps for the HTTPS demo web server (start-demo.bat).
+# Do NOT install full edge-agent ALPR stack here.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+httpx>=0.27,<1
+python-multipart>=0.0.9,<1

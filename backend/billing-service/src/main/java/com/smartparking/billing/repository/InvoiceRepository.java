@@ -22,6 +22,10 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
     /** Look up an invoice by its session for the payment + detail endpoints. */
     Optional<Invoice> findBySessionId(UUID sessionId);
 
+    boolean existsByPayosOrderCode(Long payosOrderCode);
+
+    Optional<Invoice> findByPayosOrderCode(Long payosOrderCode);
+
     /** Invoices whose exit falls in [from, to) — for daily/monthly revenue reports. */
     @Query("SELECT i FROM Invoice i WHERE i.exitTime >= :from AND i.exitTime < :to")
     List<Invoice> findByExitTimeInRange(@Param("from") OffsetDateTime from,

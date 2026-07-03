@@ -6,6 +6,7 @@ import com.smartparking.billing.dto.response.DriverPaymentResponseDTO;
 import com.smartparking.billing.dto.response.InvoiceResponseDTO;
 import com.smartparking.billing.dto.response.MoMoPaymentResponseDTO;
 import com.smartparking.billing.dto.response.PageResponseDTO;
+import com.smartparking.billing.dto.response.PayOsPaymentResponseDTO;
 import com.smartparking.billing.dto.response.PaymentResponseDTO;
 import com.smartparking.billing.entity.enums.InvoiceStatus;
 import java.util.List;
@@ -110,4 +111,20 @@ public interface BillingService {
      * @param ipn the IPN body MoMo POSTed (orderId carries the invoice id prefix)
      */
     void handleMoMoIpn(com.smartparking.billing.dto.momo.MoMoIpnRequestDTO ipn);
+
+    /**
+     * Gate self-payment via PayOS: create a payment link + QR for the session's PENDING invoice.
+     * Does not change invoice status — confirmation via {@link #checkPayOsPayment(UUID, long)} or webhook.
+     */
+    PayOsPaymentResponseDTO createPayOsPayment(UUID sessionId);
+
+    /**
+     * Reconcile a PayOS payment: query PayOS and settle invoice PAID when confirmed. Idempotent.
+     */
+    PayOsPaymentResponseDTO checkPayOsPayment(UUID sessionId, long orderCode);
+
+    /**
+     * Handle PayOS webhook (checksum verified). On success ({@code code == "00"}) settles PENDING invoice PAID.
+     */
+    java.util.Map<String, Object> handlePayOsWebhook(java.util.Map<String, Object> payload);
 }

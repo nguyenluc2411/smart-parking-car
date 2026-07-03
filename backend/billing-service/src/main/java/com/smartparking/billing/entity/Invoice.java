@@ -78,6 +78,10 @@ public class Invoice {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    /** Latest PayOS orderCode for gate self-pay (nullable until a PayOS QR is created). */
+    @Column(name = "payos_order_code")
+    private Long payosOrderCode;
+
     @PrePersist
     void onCreate() {
         if (id == null) {

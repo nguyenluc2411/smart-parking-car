@@ -1,6 +1,0 @@
-# Test tagged 'live' gọi backend thật → bỏ qua mặc định để `flutter test`
-# không phụ thuộc docker. Chạy thật:
-#   flutter test test/live_api_test.dart --run-skipped --tags live --dart-define=USE_MOCK=false
-tags:
-  live:
-    skip: "Cần backend đang chạy; xem header test/live_api_test.dart"

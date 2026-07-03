@@ -71,6 +71,13 @@ app:
     redirect-url: ${MOMO_REDIRECT_URL:http://localhost:8082/api/v1/billing/momo/return}
     ipn-url: ${MOMO_IPN_URL:http://localhost:8082/api/v1/billing/momo/ipn}
     request-type: ${MOMO_REQUEST_TYPE:captureWallet}
+  # PayOS payment gateway (gate self-pay, parallel to MoMo).
+  payos:
+    client-id: ${PAYOS_CLIENT_ID:}
+    api-key: ${PAYOS_API_KEY:}
+    checksum-key: ${PAYOS_CHECKSUM_KEY:}
+    return-url: ${PAYOS_RETURN_URL:https://localhost:8095/}
+    cancel-url: ${PAYOS_CANCEL_URL:https://localhost:8095/}
 
 management:
   endpoints:
