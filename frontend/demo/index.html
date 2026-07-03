@@ -63,7 +63,7 @@
 </head>
 <body>
 <header>
-  <h1>🅿️ Smart Parking — Demo ALPR</h1>
+  <h1>Smart Parking — Demo ALPR</h1>
   <span class="sub">Camera → nhận diện biển → barie → thanh toán MoMo hoặc PayOS</span>
 </header>
 
@@ -71,7 +71,7 @@
   <span class="stat"><b id="aOccupied">—</b><span class="lbl">xe trong bãi</span></span>
   <span class="stat ok"><b id="aEmpty">—</b><span class="lbl">chỗ trống</span></span>
   <span class="stat"><b id="aTotal">—</b><span class="lbl">tổng chỗ</span></span>
-  <span class="stat" id="aFull" style="display:none;color:var(--bad)">⛔ HẾT CHỖ</span>
+  <span class="stat" id="aFull" style="display:none;color:var(--bad)">HẾT CHỖ</span>
 </div>
 
 <div class="wrap">
@@ -80,17 +80,17 @@
     <h2>1 · Camera cổng — đưa BIỂN SỐ vào khung, càng gần càng chính xác</h2>
     <div class="camwrap">
       <video id="cam" autoplay playsinline muted></video>
-      <div class="guide"><span>▸ Đưa biển số vào khung này (cận cảnh)</span></div>
+      <div class="guide"><span>Đưa biển số vào khung này (cận cảnh)</span></div>
     </div>
     <canvas id="shot" style="display:none"></canvas>
     <div class="row">
-      <button class="in"  id="btnIn">🚗 Quét XE VÀO</button>
-      <button class="out" id="btnOut">🚙 Quét XE RA</button>
-      <button class="ghost" id="btnFlip">🔄 Đổi camera</button>
-      <label class="ghost" style="padding:11px 16px;border-radius:10px;">📁 Ảnh
+      <button class="in"  id="btnIn">Quét XE VÀO</button>
+      <button class="out" id="btnOut">Quét XE RA</button>
+      <button class="ghost" id="btnFlip">Đổi camera</button>
+      <label class="ghost" style="padding:11px 16px;border-radius:10px;">Ảnh
         <input id="file" type="file" accept="image/*" style="display:none">
       </label>
-      <label class="ghost" style="padding:11px 16px;border-radius:10px;">📹 Video
+      <label class="ghost" style="padding:11px 16px;border-radius:10px;">Video
         <input id="video" type="file" accept="video/*" style="display:none">
       </label>
     </div>
@@ -122,7 +122,7 @@
     </div>
 
     <div class="row" style="justify-content:center;margin-top:12px">
-      <button class="momo" id="btnPay" style="display:none">💳 Hiện QR thanh toán</button>
+      <button class="momo" id="btnPay" style="display:none">Hiện QR thanh toán</button>
     </div>
 
     <div id="qrbox">
@@ -132,16 +132,16 @@
         <div class="pay-col">
           <h3>MoMo</h3>
           <div id="qr-momo"></div>
-          <div style="margin-top:8px"><a class="link" id="paylink-momo" target="_blank">Mở trang thanh toán MoMo ↗</a></div>
+          <div style="margin-top:8px"><a class="link" id="paylink-momo" target="_blank">Mở trang thanh toán MoMo</a></div>
         </div>
         <div class="pay-col">
           <h3>PayOS</h3>
           <div id="qr-payos"></div>
-          <div style="margin-top:8px"><a class="link" id="paylink-payos" target="_blank">Mở trang thanh toán PayOS ↗</a></div>
+          <div style="margin-top:8px"><a class="link" id="paylink-payos" target="_blank">Mở trang thanh toán PayOS</a></div>
         </div>
       </div>
       <div class="row" style="justify-content:center;margin-top:12px">
-        <button class="momo" id="btnCheck">🔄 Kiểm tra đã thanh toán</button>
+        <button class="momo" id="btnCheck">Kiểm tra đã thanh toán</button>
       </div>
       <div style="margin-top:8px"><span class="pill pending" id="payst">PENDING</span></div>
     </div>
@@ -162,7 +162,7 @@ async function startCamera(f) {
       video: { facingMode: { ideal: f }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     cam.srcObject = stream; facing = f;
   } catch (e) {
-    setMsg('Không mở được camera ('+f+') — bấm 🔄 Đổi camera hoặc dùng 📁 Ảnh.', 'bad');
+    setMsg('Không mở được camera ('+f+') — bấm Đổi camera hoặc dùng Ảnh.', 'bad');
   }
 }
 startCamera(facing);
@@ -196,8 +196,8 @@ function showPreview(blob, direction) {
   prevUrl = URL.createObjectURL(blob);
   $('#preview').src = prevUrl;
   $('#scanned').style.display = 'block';
-  $('#scanwhat').textContent = direction==='IN' ? '🚗 Quét: XE VÀO' : '🚙 Quét: XE RA';
-  $('#scanstate').textContent = '⏳ đang nhận diện…';
+  $('#scanwhat').textContent = direction==='IN' ? 'Quét: XE VÀO' : 'Quét: XE RA';
+  $('#scanstate').textContent = 'Đang nhận diện...';
 }
 
 // Chụp N khung của CÙNG một xe, cách nhau gapMs — để burst bỏ phiếu (loại khung mờ/lỗi).
@@ -215,12 +215,12 @@ async function scan(direction, providedFrames) {
   if (providedFrames) {
     frames = providedFrames;              // ảnh upload: 1 khung
   } else {
-    setMsg('📸 Đang chụp 5 khung của xe… giữ yên & đưa biển vào khung.');
+    setMsg('Đang chụp 5 khung của xe... giữ yên và đưa biển vào khung.');
     frames = await captureFrames(5, 200); // camera: 5 khung trong ~1s
   }
   showPreview(frames[frames.length-1], direction);
   const gate = direction==='IN' ? 'GATE_ENTRY_01' : 'GATE_EXIT_01';
-  setMsg('⏳ Đang nhận diện '+(direction==='IN'?'XE VÀO':'XE RA')+' ('+frames.length+' khung, bỏ phiếu)…');
+  setMsg('Đang nhận diện '+(direction==='IN'?'XE VÀO':'XE RA')+' ('+frames.length+' khung, bỏ phiếu)...');
   const fd = new FormData();
   frames.forEach((b,i)=> fd.append('images', b, 'f'+i+'.jpg'));
   fd.append('gate_id', gate); fd.append('direction', direction);
@@ -233,20 +233,20 @@ async function scan(direction, providedFrames) {
       $('#conf').textContent = 'conf ' + (data.confidence*100).toFixed(1) + '% · '
                                + data.votes + '/' + data.framesSubmitted + ' khung trùng';
       $('#lat').textContent = (data.processingMs||0) + ' ms';
-      $('#scanstate').textContent = '✅ đọc được ('+data.votes+' phiếu)';
-      setMsg('⏳ Đã đọc '+data.plateNumber+' — đang chờ hệ thống quyết định…');
+      $('#scanstate').textContent = 'Đọc được ('+data.votes+' phiếu)';
+      setMsg('Đã đọc '+data.plateNumber+' — đang chờ hệ thống quyết định...');
       // Hỏi KẾT QUẢ THẬT (parking/billing) thay vì đoán "barie đang mở".
       await resolveOutcome(direction, data.plateNumber);
     } else if (r.status === 202 || (data && data.accepted === false)) {
-      $('#scanstate').textContent = '⚠️ chưa chắc chắn';
+      $('#scanstate').textContent = 'Chưa chắc chắn';
       const guess = data.plateNumber ? (' — đoán "'+data.plateNumber+'" nhưng chỉ '+(data.votes||0)+' khung trùng') : '';
-      setMsg('⚠️ Các khung chưa đồng thuận'+guess+'. Đưa biển GẦN & THẲNG, đủ sáng, giữ yên rồi quét lại.', 'bad');
+      setMsg('Các khung chưa đồng thuận'+guess+'. Đưa biển GẦN và THẲNG, đủ sáng, giữ yên rồi quét lại.', 'bad');
     } else {
-      $('#scanstate').textContent = '❌ lỗi '+r.status;
+      $('#scanstate').textContent = 'Lỗi '+r.status;
       setMsg('Lỗi '+r.status+': '+(data.detail||data.error||JSON.stringify(data)), 'bad');
     }
   } catch(e) {
-    $('#scanstate').textContent = '❌ lỗi kết nối';
+    $('#scanstate').textContent = 'Lỗi kết nối';
     setMsg('Lỗi kết nối edge-agent: '+e, 'bad');
   } finally {
     setBusy(false);
@@ -303,7 +303,7 @@ $('#video').onchange = async e => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f || busy) return;
   setBusy(true);
-  setMsg('🎞️ Đang trích khung từ video…');
+  setMsg('Đang trích khung từ video...');
   let frames;
   try { frames = await framesFromVideo(f, 12); }
   catch (err) { setBusy(false); return setMsg('Lỗi đọc video: ' + err.message, 'bad'); }
@@ -323,7 +323,7 @@ function renderQr(containerSel, payload) {
 
 async function loadPayments(plate, tries) {
   tries = tries || 0;
-  setMsg('⏳ Tạo mã QR thanh toán MoMo + PayOS…');
+  setMsg('Đang tạo mã QR thanh toán MoMo + PayOS...');
   let momoRes, payosRes, momo = {}, payos = {};
   try {
     [momoRes, payosRes] = await Promise.all([
@@ -371,7 +371,7 @@ async function loadPayments(plate, tries) {
   $('#payst').className = 'pill pending'; $('#payst').textContent = 'PENDING';
   $('#qrbox').style.display = 'block';
   $('#qrbox').scrollIntoView({ behavior:'smooth', block:'center' });
-  setMsg('💳 Chọn MoMo hoặc PayOS → quét QR → thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
+  setMsg('Chọn MoMo hoặc PayOS, quét QR để thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
 }
 
 $('#btnCheck').onclick = async ()=> {
@@ -392,8 +392,8 @@ $('#btnCheck').onclick = async ()=> {
       else if (!msg) msg = d.message || 'PayOS chưa thanh toán';
     }
     $('#payst').className='pill '+(paid?'paid':'pending');
-    $('#payst').textContent = paid ? 'PAID ✓' : 'PENDING';
-    setMsg(paid ? '✅ Đã thanh toán! Barie sẽ mở khi xe ra.' : 'ℹ️ '+msg, paid?'ok':'');
+    $('#payst').textContent = paid ? 'PAID' : 'PENDING';
+    setMsg(paid ? 'Đã thanh toán. Barie sẽ mở khi xe ra.' : msg, paid?'ok':'');
   } finally { $('#btnCheck').disabled=false; }
 };
 
@@ -404,7 +404,7 @@ async function resolveOutcome(direction, plate) {
     const o = await r.json();
     if (o.availability) renderAvail(o.availability);
     setMsg(o.message || '—', o.barrier ? 'ok' : 'bad');
-    $('#scanstate').textContent = o.barrier ? '✅ barie mở' : '⛔ barie không mở';
+    $('#scanstate').textContent = o.barrier ? 'Barie mở' : 'Barie không mở';
     // Chỉ tạo QR khi hóa đơn PENDING. Xe whitelist (WAIVED) / đã trả → KHÔNG tạo QR (hết vòng lặp).
     if (direction === 'OUT' && o.needsPayment) {
       $('#btnPay').style.display = 'inline-block';
