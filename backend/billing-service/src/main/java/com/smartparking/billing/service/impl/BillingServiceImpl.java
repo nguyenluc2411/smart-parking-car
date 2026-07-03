@@ -11,6 +11,7 @@ import com.smartparking.billing.dto.request.PayRequestDTO;
 import com.smartparking.billing.dto.response.DriverPaymentResponseDTO;
 import com.smartparking.billing.dto.response.InvoiceResponseDTO;
 import com.smartparking.billing.dto.response.MoMoPaymentResponseDTO;
+import com.smartparking.billing.dto.response.PayOsPaymentResponseDTO;
 import com.smartparking.billing.dto.response.PageResponseDTO;
 import com.smartparking.billing.dto.response.PaymentResponseDTO;
 import com.smartparking.billing.entity.Invoice;
@@ -35,9 +36,12 @@ import com.smartparking.billing.service.BillingService;
 import com.smartparking.billing.service.FeeCalculation;
 import com.smartparking.billing.service.FeeCalculator;
 import com.smartparking.billing.service.MoMoGateway;
+import com.smartparking.billing.service.PayOsGateway;
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +52,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vn.payos.model.webhooks.WebhookData;
 
 /**
  * Calculates a parking fee when a session closes and records a PENDING invoice + outbox event.
@@ -69,6 +74,7 @@ public class BillingServiceImpl implements BillingService {
     private final InvoiceMapper invoiceMapper;
     private final ObjectMapper objectMapper;
     private final MoMoGateway moMoGateway;
+    private final PayOsGateway payOsGateway;
 
     @Value("${app.kafka.topics.invoice-calculated}")
     private String invoiceCalculatedTopic;
@@ -337,6 +343,109 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
+    public PayOsPaymentResponseDTO createPayOsPayment(UUID sessionId) {
+        Invoice invoice = invoiceRepository.findBySessionId(sessionId)
+                .orElseThrow(() -> new InvoiceNotFoundException("No invoice for sessionId=" + sessionId));
+
+        if (invoice.getStatus() != InvoiceStatus.PENDING) {
+            throw new InvalidPaymentException(
+                    "Invoice %s is not payable (status=%s)".formatted(invoice.getId(), invoice.getStatus()));
+        }
+
+        long orderCode = generateUniquePayOsOrderCode();
+        long amount = invoice.getAmount().longValue();
+        if (amount < 1000) {
+            throw new InvalidPaymentException("PayOS minimum amount is 1000 VND");
+        }
+        String description = "Phi gui xe " + invoice.getPlateNumber();
+        var payos = payOsGateway.createPayment(orderCode, amount, description);
+
+        invoice.setPayosOrderCode(orderCode);
+        invoiceRepository.save(invoice);
+
+        log.info("PayOS gate payment created: sessionId={}, invoiceId={}, orderCode={}, amount={}",
+                sessionId, invoice.getId(), orderCode, amount);
+        return PayOsPaymentResponseDTO.builder()
+                .sessionId(sessionId)
+                .invoiceId(invoice.getId())
+                .amount(invoice.getAmount())
+                .orderCode(String.valueOf(orderCode))
+                .checkoutUrl(payos.checkoutUrl())
+                .qrCode(payos.qrCode())
+                .status(invoice.getStatus())
+                .message("PayOS payment link created")
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public PayOsPaymentResponseDTO checkPayOsPayment(UUID sessionId, long orderCode) {
+        Invoice invoice = invoiceRepository.findBySessionId(sessionId)
+                .orElseThrow(() -> new InvoiceNotFoundException("No invoice for sessionId=" + sessionId));
+
+        if (invoice.getStatus() != InvoiceStatus.PENDING) {
+            return payosStatus(invoice, orderCode, "Invoice already " + invoice.getStatus());
+        }
+        if (invoice.getPayosOrderCode() == null || !invoice.getPayosOrderCode().equals(orderCode)) {
+            throw new InvalidPaymentException(
+                    "orderCode %s does not match invoice %s".formatted(orderCode, invoice.getId()));
+        }
+
+        if (!payOsGateway.isPaid(orderCode)) {
+            return payosStatus(invoice, orderCode, "Not paid yet (PayOS)");
+        }
+
+        settleOnlinePaid(invoice, payOsGateway.providerRef(orderCode),
+                "PayOS gate payment, orderCode=" + orderCode);
+        log.info("PayOS payment reconciled PAID (poll): invoiceId={}, sessionId={}, orderCode={}",
+                invoice.getId(), sessionId, orderCode);
+        return payosStatus(invoice, orderCode, "PAID");
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> handlePayOsWebhook(Map<String, Object> payload) {
+        WebhookData verified = payOsGateway.verifyWebhook(payload);
+        if (verified == null) {
+            log.warn("PayOS webhook signature verification failed");
+            return webhookAck("signature verification failed");
+        }
+
+        String code = payload.get("code") == null ? "" : String.valueOf(payload.get("code"));
+        if (code.isBlank() && verified.getCode() != null) {
+            code = String.valueOf(verified.getCode());
+        }
+        Long orderCode = verified.getOrderCode();
+        if (orderCode == null) {
+            return webhookAck("orderCode missing");
+        }
+
+        Invoice invoice = invoiceRepository.findByPayosOrderCode(orderCode).orElse(null);
+        if (invoice == null) {
+            log.warn("PayOS webhook for unknown orderCode={}, ignored", orderCode);
+            return webhookAck("invoice not found");
+        }
+        if (!"00".equals(code)) {
+            log.info("PayOS webhook non-success code={} for invoice {}", code, invoice.getId());
+            return webhookAck("payment not successful");
+        }
+        if (invoice.getStatus() != InvoiceStatus.PENDING) {
+            log.info("PayOS webhook: invoice {} already {} — idempotent no-op",
+                    invoice.getId(), invoice.getStatus());
+            return webhookAck("already processed");
+        }
+
+        String providerRef = verified.getPaymentLinkId() != null
+                ? verified.getPaymentLinkId()
+                : String.valueOf(orderCode);
+        settleOnlinePaid(invoice, providerRef, "PayOS webhook, orderCode=" + orderCode);
+        log.info("PayOS webhook settled PAID: invoiceId={}, sessionId={}, orderCode={}",
+                invoice.getId(), invoice.getSessionId(), orderCode);
+        return webhookAck("success");
+    }
+
+    @Override
+    @Transactional
     public void handleMoMoIpn(MoMoIpnRequestDTO ipn) {
         // BR-005-2 (real-time): MoMo POSTs this when a payment settles. Authenticate via HMAC before
         // trusting it, then settle the invoice PAID + emit payment.completed (parking opens the gate).
@@ -369,19 +478,19 @@ public class BillingServiceImpl implements BillingService {
             log.info("MoMo IPN: invoice {} already {} — idempotent no-op", invoiceId, invoice.getStatus());
             return;
         }
-        settleMoMoPaid(invoice, ipn.transId() == null ? null : String.valueOf(ipn.transId()),
+        settleOnlinePaid(invoice, ipn.transId() == null ? null : String.valueOf(ipn.transId()),
                 "MoMo IPN, orderId=" + orderId);
         log.info("MoMo IPN settled PAID (real-time push): invoiceId={}, sessionId={}, transId={}",
                 invoiceId, invoice.getSessionId(), ipn.transId());
     }
 
-    /** Mark a PENDING invoice PAID via MoMo + emit payment.completed (shared by /status poll and IPN). */
-    private void settleMoMoPaid(Invoice invoice, String providerRef, String note) {
+    /** Mark a PENDING invoice PAID via online gateway + emit payment.completed (MoMo/PayOS). */
+    private void settleOnlinePaid(Invoice invoice, String providerRef, String note) {
         Payment payment = paymentRepository.save(Payment.builder()
                 .invoiceId(invoice.getId())
                 .method(PaymentMethod.ONLINE)
                 .amountPaid(invoice.getAmount())
-                .payerType(PayerType.DRIVER)            // vehicle owner self-paid online (no operator)
+                .payerType(PayerType.DRIVER)
                 .providerRef(providerRef)
                 .note(note)
                 .build());
@@ -389,6 +498,11 @@ public class BillingServiceImpl implements BillingService {
         invoiceRepository.save(invoice);
         recordOutbox(paymentCompletedTopic, "Payment", invoice.getId(),
                 buildPaymentCompleted(invoice, payment));
+    }
+
+    /** @deprecated use {@link #settleOnlinePaid} — kept as alias for MoMo call sites in this class. */
+    private void settleMoMoPaid(Invoice invoice, String providerRef, String note) {
+        settleOnlinePaid(invoice, providerRef, note);
     }
 
     private MoMoPaymentResponseDTO momoStatus(Invoice invoice, String orderId, String message) {
@@ -400,6 +514,37 @@ public class BillingServiceImpl implements BillingService {
                 .status(invoice.getStatus())
                 .message(message)
                 .build();
+    }
+
+    private PayOsPaymentResponseDTO payosStatus(Invoice invoice, long orderCode, String message) {
+        return PayOsPaymentResponseDTO.builder()
+                .sessionId(invoice.getSessionId())
+                .invoiceId(invoice.getId())
+                .amount(invoice.getAmount())
+                .orderCode(String.valueOf(orderCode))
+                .status(invoice.getStatus())
+                .message(message)
+                .build();
+    }
+
+    private long generateUniquePayOsOrderCode() {
+        long orderCode = System.currentTimeMillis() / 1000;
+        int attempts = 0;
+        while (invoiceRepository.existsByPayosOrderCode(orderCode)) {
+            orderCode++;
+            attempts++;
+            if (attempts > 10_000) {
+                throw new InvalidPaymentException("Cannot generate unique PayOS orderCode");
+            }
+        }
+        return orderCode;
+    }
+
+    private static Map<String, Object> webhookAck(String message) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("code", "00");
+        body.put("message", message);
+        return body;
     }
 
     private void requireOwnership(Invoice invoice, List<String> plates) {

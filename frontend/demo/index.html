@@ -7,7 +7,7 @@
 <script src="/qrcode.min.js"></script>
 <style>
   :root { --bg:#0f1221; --card:#1a1f36; --line:#2b3157; --txt:#e7ebff; --mut:#9aa3c7;
-          --ok:#22c55e; --bad:#ef4444; --accent:#a21caf; --momo:#a50064; }
+          --ok:#22c55e; --bad:#ef4444; --accent:#a21caf; --momo:#a50064; --payos:#00b14f; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
   header { padding:14px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
@@ -24,7 +24,12 @@
   .guide span { position:absolute; top:-24px; left:0; color:#fff; font-size:12px; font-weight:600; text-shadow:0 1px 3px #000; }
   .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   button { cursor:pointer; border:0; border-radius:10px; padding:11px 16px; font-size:14px; font-weight:600; color:#fff; }
-  .in { background:#2563eb; } .out { background:#d97706; } .ghost { background:#2b3157; } .momo { background:var(--momo); }
+  .in { background:#2563eb; } .out { background:#d97706; } .ghost { background:#2b3157; }
+  .momo { background:var(--momo); } .payos { background:var(--payos); }
+  .pay-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px; }
+  @media (max-width: 700px) { .pay-grid { grid-template-columns:1fr; } }
+  .pay-col { background:#0e1330; border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .pay-col h3 { margin:0 0 8px; font-size:13px; color:var(--mut); text-transform:uppercase; }
   button:disabled { opacity:.45; cursor:not-allowed; }
   .plate { font-size:40px; font-weight:800; letter-spacing:2px; text-align:center; padding:14px;
            border:2px dashed var(--line); border-radius:12px; margin:6px 0; background:#0e1330; min-height:74px;
@@ -59,7 +64,7 @@
 <body>
 <header>
   <h1>🅿️ Smart Parking — Demo ALPR</h1>
-  <span class="sub">Camera → nhận diện biển → barie → thanh toán MoMo</span>
+  <span class="sub">Camera → nhận diện biển → barie → thanh toán MoMo hoặc PayOS</span>
 </header>
 
 <div class="statusbar" id="statusbar">
@@ -121,11 +126,21 @@
     </div>
 
     <div id="qrbox">
-      <h2 style="margin-top:18px">4 · Thanh toán MoMo</h2>
+      <h2 style="margin-top:18px">4 · Thanh toán</h2>
       <div class="amount" id="amt">—</div>
-      <div id="qr"></div>
-      <div style="margin-top:8px"><a class="link" id="paylink" target="_blank">Mở trang thanh toán MoMo ↗</a></div>
-      <div class="row" style="justify-content:center">
+      <div class="pay-grid">
+        <div class="pay-col">
+          <h3>MoMo</h3>
+          <div id="qr-momo"></div>
+          <div style="margin-top:8px"><a class="link" id="paylink-momo" target="_blank">Mở trang thanh toán MoMo ↗</a></div>
+        </div>
+        <div class="pay-col">
+          <h3>PayOS</h3>
+          <div id="qr-payos"></div>
+          <div style="margin-top:8px"><a class="link" id="paylink-payos" target="_blank">Mở trang thanh toán PayOS ↗</a></div>
+        </div>
+      </div>
+      <div class="row" style="justify-content:center;margin-top:12px">
         <button class="momo" id="btnCheck">🔄 Kiểm tra đã thanh toán</button>
       </div>
       <div style="margin-top:8px"><span class="pill pending" id="payst">PENDING</span></div>
@@ -136,7 +151,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const cam = $('#cam'), shot = $('#shot');
-let lastPlate = null, lastSession = null, lastOrder = null;
+let lastPlate = null, lastSession = null, lastMomoOrder = null, lastPayosOrderCode = null;
 
 // --- webcam (ưu tiên camera SAU trên điện thoại; có nút đổi trước/sau) ---
 let facing = 'environment', stream = null;
@@ -239,7 +254,7 @@ async function scan(direction, providedFrames) {
 }
 
 $('#btnFlip').onclick = ()=> { if(!busy) startCamera(facing === 'environment' ? 'user' : 'environment'); };
-$('#btnPay').onclick = ()=> { if (lastPlate) loadMoMo(lastPlate); };
+$('#btnPay').onclick = ()=> { if (lastPlate) loadPayments(lastPlate); };
 $('#btnIn').onclick  = ()=> scan('IN',  null);   // null = chụp 5 khung từ camera
 $('#btnOut').onclick = ()=> scan('OUT', null);
 // Ảnh từ file: hỏi chiều TRƯỚC khi quét; reset value để chọn lại đúng file vẫn chạy.
@@ -297,41 +312,88 @@ $('#video').onchange = async e => {
   scan(window.vidDir || 'IN', frames);   // gửi cả 12 khung → /detect_burst bầu chọn
 };
 
-// --- MoMo QR ---
-async function loadMoMo(plate, tries) {
+// --- MoMo + PayOS QR (song song) ---
+function renderQr(containerSel, payload) {
+  const el = $(containerSel);
+  el.innerHTML = '';
+  if (!payload) { el.textContent = '—'; return; }
+  try { new QRCode(el, { text: payload, width:200, height:200, correctLevel: QRCode.CorrectLevel.M }); }
+  catch(e){ el.innerHTML = '<img width=200 src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(payload)+'">'; }
+}
+
+async function loadPayments(plate, tries) {
   tries = tries || 0;
-  setMsg('⏳ Tạo mã QR thanh toán MoMo…');
-  let r, d;
-  try { r = await fetch('/api/momo?plate='+encodeURIComponent(plate), { method:'POST' }); d = await r.json().catch(()=>({})); }
-  catch(e){ return setMsg('Lỗi gọi MoMo: '+e, 'bad'); }
-  if (r.status !== 200 || !(d.qrCodeUrl || d.payUrl)) {
-    if (tries < 6) return setTimeout(()=>loadMoMo(plate, tries+1), 1500);  // chờ billing tạo hóa đơn
-    return setMsg('Chưa tạo được QR MoMo: '+(d.error||d.message||('HTTP '+r.status)), 'bad');
+  setMsg('⏳ Tạo mã QR thanh toán MoMo + PayOS…');
+  let momoRes, payosRes, momo = {}, payos = {};
+  try {
+    [momoRes, payosRes] = await Promise.all([
+      fetch('/api/momo?plate='+encodeURIComponent(plate), { method:'POST' }),
+      fetch('/api/payos?plate='+encodeURIComponent(plate), { method:'POST' })
+    ]);
+    momo = await momoRes.json().catch(()=>({}));
+    payos = await payosRes.json().catch(()=>({}));
+  } catch(e) { return setMsg('Lỗi gọi thanh toán: '+e, 'bad'); }
+
+  const momoOk = momoRes.status === 200 && (momo.qrCodeUrl || momo.payUrl);
+  const payosOk = payosRes.status === 200 && (payos.qrCode || payos.checkoutUrl);
+  if (!momoOk && !payosOk) {
+    if (tries < 6) return setTimeout(()=>loadPayments(plate, tries+1), 1500);
+    const err = momo.error || payos.error || momo.message || payos.message || ('HTTP '+momoRes.status);
+    return setMsg('Chưa tạo được QR thanh toán: '+err, 'bad');
   }
-  lastSession = d.sessionId; lastOrder = d.orderId;
-  $('#amt').textContent = Number(d.amount).toLocaleString('vi-VN') + ' ₫';
-  $('#paylink').href = d.payUrl || '#';
-  // qrCodeUrl = payload MoMo: mở app MoMo quét QR này là thanh toán luôn (không cần bấm link).
-  const payload = d.qrCodeUrl || d.payUrl;
-  const qr = $('#qr'); qr.innerHTML = '';
-  try { new QRCode(qr, { text: payload, width:240, height:240, correctLevel: QRCode.CorrectLevel.M }); }
-  catch(e){ qr.innerHTML = '<img width=240 src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='+encodeURIComponent(payload)+'">'; }
+
+  lastSession = momo.sessionId || payos.sessionId;
+  lastMomoOrder = momoOk ? momo.orderId : null;
+  lastPayosOrderCode = payosOk ? payos.orderCode : null;
+  const amount = momo.amount || payos.amount;
+  $('#amt').textContent = Number(amount).toLocaleString('vi-VN') + ' ₫';
+
+  if (momoOk) {
+    const payload = momo.qrCodeUrl || momo.payUrl;
+    renderQr('#qr-momo', payload);
+    $('#paylink-momo').href = momo.payUrl || '#';
+    $('#paylink-momo').style.display = 'inline';
+  } else {
+    $('#qr-momo').innerHTML = '<span style="color:var(--bad);font-size:12px">MoMo không khả dụng</span>';
+    $('#paylink-momo').style.display = 'none';
+  }
+
+  if (payosOk) {
+    const payload = payos.qrCode || payos.checkoutUrl;
+    renderQr('#qr-payos', payload);
+    $('#paylink-payos').href = payos.checkoutUrl || '#';
+    $('#paylink-payos').style.display = 'inline';
+  } else {
+    $('#qr-payos').innerHTML = '<span style="color:var(--bad);font-size:12px">PayOS không khả dụng</span>';
+    $('#paylink-payos').style.display = 'none';
+  }
+
   $('#payst').className = 'pill pending'; $('#payst').textContent = 'PENDING';
   $('#qrbox').style.display = 'block';
   $('#qrbox').scrollIntoView({ behavior:'smooth', block:'center' });
-  setMsg('💳 Mở app MoMo → Quét mã QR này → thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
+  setMsg('💳 Chọn MoMo hoặc PayOS → quét QR → thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
 }
 
 $('#btnCheck').onclick = async ()=> {
   if (!lastSession) return;
   $('#btnCheck').disabled=true;
   try {
-    const r = await fetch('/api/momo/status?session_id='+lastSession+'&order_id='+encodeURIComponent(lastOrder));
-    const d = await r.json();
-    const paid = d.status==='PAID';
+    let paid = false, msg = '';
+    if (lastMomoOrder) {
+      const r = await fetch('/api/momo/status?session_id='+lastSession+'&order_id='+encodeURIComponent(lastMomoOrder));
+      const d = await r.json();
+      if (d.status === 'PAID') { paid = true; msg = d.message || 'MoMo PAID'; }
+      else if (!msg) msg = d.message || 'MoMo chưa thanh toán';
+    }
+    if (!paid && lastPayosOrderCode) {
+      const r = await fetch('/api/payos/status?session_id='+lastSession+'&order_code='+encodeURIComponent(lastPayosOrderCode));
+      const d = await r.json();
+      if (d.status === 'PAID') { paid = true; msg = d.message || 'PayOS PAID'; }
+      else if (!msg) msg = d.message || 'PayOS chưa thanh toán';
+    }
     $('#payst').className='pill '+(paid?'paid':'pending');
-    $('#payst').textContent = d.status + (paid?' ✓':'');
-    setMsg(paid ? '✅ Đã thanh toán! Đã phát event billing.payment.completed.' : 'ℹ️ '+(d.message||'Chưa thanh toán'), paid?'ok':'');
+    $('#payst').textContent = paid ? 'PAID ✓' : 'PENDING';
+    setMsg(paid ? '✅ Đã thanh toán! Barie sẽ mở khi xe ra.' : 'ℹ️ '+msg, paid?'ok':'');
   } finally { $('#btnCheck').disabled=false; }
 };
 
@@ -346,7 +408,7 @@ async function resolveOutcome(direction, plate) {
     // Chỉ tạo QR khi hóa đơn PENDING. Xe whitelist (WAIVED) / đã trả → KHÔNG tạo QR (hết vòng lặp).
     if (direction === 'OUT' && o.needsPayment) {
       $('#btnPay').style.display = 'inline-block';
-      loadMoMo(plate);
+      loadPayments(plate);
     } else {
       $('#btnPay').style.display = 'none';
       $('#qrbox').style.display = 'none';

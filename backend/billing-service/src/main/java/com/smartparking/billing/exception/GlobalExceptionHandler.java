@@ -62,6 +62,12 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.BAD_GATEWAY, "PAYMENT_GATEWAY_ERROR", ex.getMessage(), null);
     }
 
+    @ExceptionHandler(PayOsGatewayException.class)
+    public ResponseEntity<Map<String, Object>> handlePayOsGateway(PayOsGatewayException ex) {
+        log.error("PayOS gateway failure", ex);
+        return error(HttpStatus.BAD_GATEWAY, "PAYMENT_GATEWAY_ERROR", ex.getMessage(), null);
+    }
+
     @ExceptionHandler(KafkaException.class)
     public ResponseEntity<Map<String, Object>> handleKafka(KafkaException ex) {
         log.error("Kafka failure", ex);
