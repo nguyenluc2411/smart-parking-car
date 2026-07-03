@@ -12,7 +12,6 @@ import {
   Users,
   Tags,
   LayoutGrid,
-  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/authStore";
@@ -35,7 +34,6 @@ export const NAV: NavItem[] = [
   { href: "/billing/rates", label: "Bảng giá", icon: Tags, roles: ["ADMIN"] },
   { href: "/reports", label: "Báo cáo", icon: BarChart3, roles: ["ADMIN"] },
   { href: "/users", label: "Người dùng", icon: Users, roles: ["ADMIN"] },
-  { href: "/settings/notifications", label: "Cấu hình Thông báo", icon: Settings, roles: ["ADMIN"] },
 ];
 
 /** Danh sách link điều hướng, lọc theo role. Dùng chung cho Sidebar (desktop) và drawer (mobile). */
