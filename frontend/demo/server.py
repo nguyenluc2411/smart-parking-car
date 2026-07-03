@@ -155,6 +155,15 @@ async def momo_create(plate: str):
         return JSONResponse(status_code=mr.status_code, content=data)
 
 
+@app.get("/api/momo/status")
+async def momo_status(session_id: str, order_id: str):
+    """Query + reconcile MoMo payment status for a session (orderId from the create call)."""
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/momo/status",
+                            params={"orderId": order_id})
+        return JSONResponse(status_code=r.status_code, content=r.json().get("data") or r.json())
+
+
 @app.post("/api/payos")
 async def payos_create(plate: str):
     """Find the plate's latest CLOSED session and create a PayOS payment for its invoice."""
