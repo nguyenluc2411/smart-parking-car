@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * PayOS payment-gateway config (12-Factor: injected from env). Used for gate self-pay alongside MoMo.
+ * PayOS payment-gateway 
  */
 @Component
 @ConfigurationProperties(prefix = "app.payos")
