@@ -583,6 +583,37 @@ ghi `payment` (method=ONLINE, provider_ref=MoMo transId) và phát lại event `
 }
 ```
 
+### POST /api/v1/billing/sessions/{sessionId}/payos
+**Auth:** OPERATOR, ADMIN  
+**Mô tả:** Tạo phiên thanh toán PayOS (gate self-pay) cho hóa đơn PENDING — song song MoMo.
+Trả về `checkoutUrl` + `qrCode`. Xác nhận qua `/payos/status` hoặc webhook `/payos/webhook`.
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "sessionId": "uuid",
+    "invoiceId": "uuid",
+    "amount": 12000,
+    "orderCode": "1720000000",
+    "checkoutUrl": "https://pay.payos.vn/web/...",
+    "qrCode": "000201010212...",
+    "status": "PENDING",
+    "message": "PayOS payment link created"
+  }
+}
+```
+**Lỗi:** 409 `INVALID_PAYMENT` · 404 `INVOICE_NOT_FOUND` · 502 `PAYMENT_GATEWAY_ERROR`.
+
+### GET /api/v1/billing/sessions/{sessionId}/payos/status?orderCode={orderCode}
+**Auth:** OPERATOR, ADMIN  
+**Query:** `orderCode` — giá trị trả về từ endpoint tạo PayOS.  
+**Mô tả:** Query PayOS và reconcile → PAID + `billing.payment.completed` khi đã thanh toán.
+
+### POST /api/v1/billing/payos/webhook
+**Auth:** PUBLIC (PayOS checksum)  
+**Mô tả:** Webhook PayOS — settle invoice PAID khi `code == "00"`.
+
 ### GET /api/v1/billing/rates
 **Auth:** OPERATOR, ADMIN  
 **Response 200:** the currently effective rate + its peak schedules

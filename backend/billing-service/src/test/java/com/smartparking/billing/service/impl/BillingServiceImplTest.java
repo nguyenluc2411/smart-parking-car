@@ -31,6 +31,8 @@ import com.smartparking.billing.repository.RateRepository;
 import com.smartparking.billing.repository.RateScheduleRepository;
 import com.smartparking.billing.service.FeeCalculation;
 import com.smartparking.billing.service.FeeCalculator;
+import com.smartparking.billing.service.MoMoGateway;
+import com.smartparking.billing.service.PayOsGateway;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -58,6 +60,8 @@ class BillingServiceImplTest {
     @Mock private FeeCalculator feeCalculator;
     @Mock private InvoiceMapper invoiceMapper;
     @Mock private ObjectMapper objectMapper;
+    @Mock private MoMoGateway moMoGateway;
+    @Mock private PayOsGateway payOsGateway;
 
     @InjectMocks private BillingServiceImpl service;
 

@@ -34,6 +34,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         // BR-005-2: MoMo IPN webhook — public (no JWT); authenticity via HMAC signature.
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/momo/ipn").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/billing/payos/webhook").permitAll()
                         .requestMatchers("/api/v1/billing/report/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/billing/rates").hasRole("ADMIN")
                         .requestMatchers("/api/v1/driver/**").hasRole("DRIVER")
