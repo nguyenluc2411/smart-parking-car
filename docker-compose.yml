@@ -247,6 +247,27 @@ services:
       start_period: 90s   # ALPR warmup nạp torch+paddle+YOLO lúc boot (cold start chậm); /health chỉ UP sau khi paddle sẵn sàng
     networks: [parking-net]
 
+  # -------------------------------------------------------- notification-service
+  # Stateless Kafka consumer: listens to parking.alerts and pushes real-time
+  # messages (Telegram) for CRITICAL severity alerts (BLACKLIST_HIT, DUPLICATE_ACTIVE_ENTRY).
+  # No database. If TELEGRAM_BOT_TOKEN is blank the service runs silently (logs only).
+  notification-service:
+    build: ./backend/notification-service
+    image: smart-parking/notification:${VERSION}
+    container_name: notification-service
+    env_file: [.env]
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8084}:8084"
+    depends_on:
+      kafka: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [parking-net]
+
   # --------------------------------------------------------------- monitoring
   # Host CPU/RAM/disk/network metrics. On Docker Desktop the "host" is the Linux VM,
   # not Windows — metrics reflect the VM, which is still useful for the stack's own load.

@@ -11,14 +11,17 @@ import com.smartparking.parking.repository.AlertRepository;
 import com.smartparking.parking.service.AlertService;
 import com.smartparking.parking.service.ImageUrlService;
 import com.smartparking.parking.sse.AlertSseBroker;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -32,6 +35,11 @@ public class AlertServiceImpl implements AlertService {
     private final AlertRepository alertRepository;
     private final AlertSseBroker sseBroker;
     private final ImageUrlService imageUrlService;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
+
+    @Value("${app.kafka.topics.alerts:parking.alerts}")
+    private String alertsTopic;
 
     @Override
     public void raise(AlertType type, AlertSeverity severity, String plateNumber, String gateId,
@@ -50,10 +58,12 @@ public class AlertServiceImpl implements AlertService {
                 @Override
                 public void afterCommit() {
                     sseBroker.broadcast(dto);
+                    publishToKafka(alert);   // fire-and-forget to notification-service
                 }
             });
         } else {
             sseBroker.broadcast(dto);
+            publishToKafka(alert);
         }
     }
 
@@ -88,5 +98,29 @@ public class AlertServiceImpl implements AlertService {
                 a.getGateId(), a.getSessionId(), imageUrlService.presignedGet(a.getImageRef()),
                 a.getMessage(), a.getStatus(), a.getAcknowledgedBy(), a.getAcknowledgedAt(),
                 a.getCreatedAt());
+    }
+
+    /**
+     * Publish a lightweight AlertEvent to Kafka topic `parking.alerts` for notification-service.
+     * Fire-and-forget: any failure here only logs a warning — it must NEVER affect the parking flow.
+     */
+    private void publishToKafka(Alert alert) {
+        try {
+            var payload = objectMapper.writeValueAsString(new java.util.LinkedHashMap<String, Object>() {{
+                put("id", alert.getId());
+                put("alertType", alert.getAlertType());
+                put("severity", alert.getSeverity());
+                put("plateNumber", alert.getPlateNumber());
+                put("gateId", alert.getGateId());
+                put("sessionId", alert.getSessionId());
+                put("message", alert.getMessage());
+                put("createdAt", alert.getCreatedAt());
+            }});
+            kafkaTemplate.send(alertsTopic, alert.getId().toString(), payload);
+            log.debug("Alert {} published to topic {}", alert.getId(), alertsTopic);
+        } catch (Exception ex) {
+            // Intentionally swallow — notification delivery must not block or fail parking operations
+            log.warn("Failed to publish alert {} to Kafka topic {}: {}", alert.getId(), alertsTopic, ex.getMessage());
+        }
     }
 }

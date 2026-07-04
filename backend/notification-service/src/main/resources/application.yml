@@ -1,0 +1,90 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notification-service
+
+  # Spring Mail — SMTP (Gmail hoặc bất kỳ SMTP server nào)
+  # Để MAIL_USERNAME trống = tắt gửi email (chỉ log), service vẫn chạy bình thường.
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    listener:
+      ack-mode: record
+
+# 12-Factor: business config is injectable, never hardcoded in code/image.
+app:
+  kafka:
+    topic:
+      alerts: parking.alerts
+  mail:
+    # Địa chỉ email nhận cảnh báo khẩn cấp (có thể là group email của admin team)
+    to: ${MAIL_ALERT_TO:}
+    from: ${MAIL_USERNAME:noreply@parking.vn}
+    # Chỉ gửi email khi cả MAIL_USERNAME và MAIL_ALERT_TO đều được cấu hình
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+---
+# Profile: docker — dành cho Docker Compose / container environment
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+
+---
+# Profile: local — override nhẹ cho dev chạy local không có container
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+---
+# Profile: test — embedded Kafka cho unit/integration test
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers}

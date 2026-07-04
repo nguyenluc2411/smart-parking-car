@@ -48,6 +48,7 @@ app:
       gate-command: parking.gate.command          # PRODUCE
       session-created: parking.session.created    # PRODUCE
       session-closed: parking.session.closed      # PRODUCE
+      alerts: parking.alerts                      # PRODUCE (notification-service consumes this for critical alerts)
   parking:
     # BR-001-2: minimum ALPR confidence accepted at the service boundary
     confidence-threshold: ${PARKING_CONFIDENCE_THRESHOLD:0.85}
