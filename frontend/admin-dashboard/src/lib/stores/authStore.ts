@@ -4,12 +4,13 @@ import type { Role } from "@/types";
 
 interface AuthState {
   token: string | null;
+  refreshToken: string | null;
   role: Role | null;
   username: string | null;
   isAuthenticated: boolean;
   /** true once the persisted state has been read from localStorage (avoids a redirect-on-reload flash). */
   hasHydrated: boolean;
-  setAuth: (token: string, role: Role, username: string) => void;
+  setAuth: (token: string, refreshToken: string, role: Role, username: string) => void;
   clearAuth: () => void;
   setHasHydrated: (v: boolean) => void;
 }
@@ -18,14 +19,15 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
+      refreshToken: null,
       role: null,
       username: null,
       isAuthenticated: false,
       hasHydrated: false,
-      setAuth: (token, role, username) =>
-        set({ token, role, username, isAuthenticated: true }),
+      setAuth: (token, refreshToken, role, username) =>
+        set({ token, refreshToken, role, username, isAuthenticated: true }),
       clearAuth: () =>
-        set({ token: null, role: null, username: null, isAuthenticated: false }),
+        set({ token: null, refreshToken: null, role: null, username: null, isAuthenticated: false }),
       setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
@@ -33,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
       // Don't persist the transient hydration flag — it must start false on each load.
       partialize: (s) => ({
         token: s.token,
+        refreshToken: s.refreshToken,
         role: s.role,
         username: s.username,
         isAuthenticated: s.isAuthenticated,
