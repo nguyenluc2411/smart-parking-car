@@ -88,62 +88,63 @@ export function NotificationBell() {
               const Icon = meta.icon;
               const href = alertHref(a);
               return (
-                <div
-                  key={a.id}
-                  className={cn(
-                    "flex items-stretch border-l-2",
-                    a.severity === "CRITICAL"
-                      ? "border-l-destructive"
-                      : "border-l-amber-500"
-                  )}
-                >
-                  <Link
-                    href={href ?? "#"}
-                    onClick={() => setOpen(false)}
-                    className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 transition-colors hover:bg-muted/50"
-                  >
-                    <div
-                      className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                        SEVERITY_STYLE[a.severity].chip
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold">
-                          {meta.label}
-                        </p>
-                        {a.plateNumber && (
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium">
-                            {a.plateNumber}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                        {describeAlert(a)}
-                      </p>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {timeAgo(a.createdAt)}
-                      </p>
-                    </div>
-                  </Link>
-
-                  <button
-                    type="button"
-                    title="Đánh dấu đã xử lý"
-                    disabled={ack.isPending}
-                    onClick={() => onAck(a)}
-                    className="flex w-10 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-green-600 disabled:opacity-50"
-                  >
-                    {ack.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5" />
+                  <div
+                    key={a.id}
+                    className={cn(
+                      "flex items-stretch border-l-2",
+                      a.severity === "CRITICAL"
+                        ? "border-l-destructive"
+                        : "border-l-warning"
                     )}
-                  </button>
-                </div>
+                  >
+                    <Link
+                      href={href ?? "#"}
+                      onClick={() => setOpen(false)}
+                      className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 transition-colors hover:bg-muted/50"
+                    >
+                      <div
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                          SEVERITY_STYLE[a.severity].chip
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold">
+                            {meta.label}
+                          </p>
+                          {a.plateNumber && (
+                            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium border border-border/50">
+                              {a.plateNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                          {describeAlert(a)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {timeAgo(a.createdAt)}
+                        </p>
+                      </div>
+                    </Link>
+
+                    <button
+                      type="button"
+                      title="Đánh dấu đã xử lý"
+                      aria-label="Đánh dấu đã xử lý cảnh báo này"
+                      disabled={ack.isPending}
+                      onClick={() => onAck(a)}
+                      className="flex w-10 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-success disabled:opacity-50"
+                    >
+                      {ack.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
               );
             })
           )}

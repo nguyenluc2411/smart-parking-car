@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import type { SessionListItem } from "@/types";
 import {
@@ -13,7 +14,7 @@ import {
 import { SessionStatusBadge } from "@/components/StatusBadge";
 import { formatDateTime, formatDuration } from "@/lib/utils";
 
-export function SessionTable({ rows }: { rows: SessionListItem[] }) {
+export const SessionTable = React.memo(function SessionTable({ rows }: { rows: SessionListItem[] }) {
   if (rows.length === 0) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
@@ -36,16 +37,18 @@ export function SessionTable({ rows }: { rows: SessionListItem[] }) {
       </TableHeader>
       <TableBody>
         {rows.map((s) => (
-          <TableRow key={s.id} className="cursor-pointer">
+          <TableRow key={s.id} className="cursor-pointer group">
             <TableCell className="font-medium">
-              <Link href={`/sessions/${s.id}`} className="hover:underline">
-                {s.plateNumber}
+              <Link href={`/sessions/${s.id}`} className="inline-flex items-center">
+                <span className="font-mono text-xs font-semibold bg-secondary/50 border border-border/50 px-2 py-1 rounded transition-colors group-hover:bg-secondary">
+                  {s.plateNumber}
+                </span>
               </Link>
             </TableCell>
-            <TableCell>{s.slotCode ?? "—"}</TableCell>
-            <TableCell>{formatDateTime(s.entryTime)}</TableCell>
-            <TableCell>{formatDateTime(s.exitTime)}</TableCell>
-            <TableCell>{formatDuration(s.durationSeconds)}</TableCell>
+            <TableCell className="font-medium text-muted-foreground">{s.slotCode ?? "—"}</TableCell>
+            <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDateTime(s.entryTime)}</TableCell>
+            <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDateTime(s.exitTime)}</TableCell>
+            <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDuration(s.durationSeconds)}</TableCell>
             <TableCell>
               <SessionStatusBadge status={s.status} />
             </TableCell>
@@ -54,4 +57,4 @@ export function SessionTable({ rows }: { rows: SessionListItem[] }) {
       </TableBody>
     </Table>
   );
-}
+});

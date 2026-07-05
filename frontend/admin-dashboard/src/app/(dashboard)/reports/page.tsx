@@ -5,8 +5,6 @@ import { useDailyReport, useMonthlyReport } from "@/lib/hooks/useReports";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { StatCard } from "@/components/dashboard/StatCard";
-import { RevenueChart } from "@/components/dashboard/RevenueChart";
-import { MonthlyChart } from "@/components/dashboard/MonthlyChart";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Card,
@@ -15,9 +13,24 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
+import dynamic from "next/dynamic";
+
+const RevenueChart = dynamic(
+  () => import("@/components/dashboard/RevenueChart"),
+  { ssr: false, loading: () => <div className="h-64 animate-pulse bg-muted/20 rounded-xl" /> }
+);
+
+const MonthlyChart = dynamic(
+  () => import("@/components/dashboard/MonthlyChart"),
+  { ssr: false, loading: () => <div className="h-64 animate-pulse bg-muted/20 rounded-xl" /> }
+);
 
 export default function ReportsPage() {
-  const daily = useDailyReport();
+  const localToday = new Date().toLocaleDateString("sv");
+  const daily = useDailyReport(localToday, {
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+  });
   const monthly = useMonthlyReport();
 
   return (

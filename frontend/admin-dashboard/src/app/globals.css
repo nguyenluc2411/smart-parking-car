@@ -4,63 +4,97 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    /* ── Neutral canvas ── */
+    --background: 0 0% 99%;
+    --foreground: 240 10% 5%;
+
+    /* ── Card / Surface ── */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 240 10% 5%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 240 10% 5%;
 
-    /* Brand: Indigo primary + Cyan accent */
-    --primary: 243 75% 59%;
+    /* ── Primary: deep indigo accent ── */
+    --primary: 243 75% 59%;          /* Indigo-500 */
     --primary-foreground: 0 0% 100%;
-    --accent: 243 75% 96%;
-    --accent-foreground: 243 60% 40%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215 16% 47%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 5.9% 10%;
 
-    --success: 152 60% 36%;
-    --warning: 32 95% 44%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
+    --accent: 243 75% 59%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* ── Status palette ── */
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 95% 50%;
+    --warning-foreground: 0 0% 10%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 98%;
+
+    /* ── Structure ── */
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
     --ring: 243 75% 59%;
-    --radius: 0.75rem;
 
-    /* Brand gradient stops (logo, hero, progress) */
-    --brand-from: 243 75% 59%;
-    --brand-to: 189 94% 43%;
+    --radius: 0.625rem;               /* 10px — slightly rounder */
+
+    /* ── Brand gradient ── */
+    --brand-from: 243 75% 59%;        /* Indigo */
+    --brand-to: 199 89% 48%;          /* Sky-500 */
+
+    /* ── Sidebar ── */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-border: 240 6% 91%;
   }
 
   .dark {
-    --background: 222 47% 9%;
-    --foreground: 210 40% 98%;
-    --card: 222 44% 12%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 44% 12%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 243 75% 66%;
-    --primary-foreground: 222 47% 11%;
-    --accent: 243 40% 22%;
-    --accent-foreground: 210 40% 98%;
-    --secondary: 217 33% 18%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-    --destructive: 0 63% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 152 55% 45%;
-    --warning: 32 90% 55%;
-    --border: 217 33% 22%;
-    --input: 217 33% 22%;
-    --ring: 243 75% 66%;
-    --brand-from: 243 75% 66%;
-    --brand-to: 189 90% 50%;
+    --background: 240 10% 4%;
+    --foreground: 0 0% 95%;
+
+    --card: 240 9% 7%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 240 9% 7%;
+    --popover-foreground: 0 0% 95%;
+
+    /* Primary stays indigo in dark mode — slightly brighter */
+    --primary: 243 75% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 6% 14%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 240 6% 14%;
+    --muted-foreground: 240 5% 55%;
+
+    --accent: 243 75% 65%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --success: 145 55% 38%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 92% 44%;
+    --warning-foreground: 0 0% 10%;
+    --info: 217 91% 55%;
+    --info-foreground: 0 0% 98%;
+
+    --border: 240 6% 16%;
+    --input: 240 6% 16%;
+    --ring: 243 75% 65%;
+
+    /* ── Sidebar (slightly lighter than page) ── */
+    --sidebar-bg: 240 9% 6%;
+    --sidebar-border: 240 6% 14%;
   }
 }
 
@@ -76,40 +110,79 @@
   }
 }
 
-@layer components {
-  /* Reusable brand gradient for logo marks, hero panels, progress bars */
-  .brand-gradient {
-    background-image: linear-gradient(
-      135deg,
-      hsl(var(--brand-from)),
-      hsl(var(--brand-to))
-    );
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
-  .brand-text {
-    background-image: linear-gradient(
+
+  /* Brand gradient text */
+  .text-brand-gradient {
+    background: linear-gradient(
       135deg,
-      hsl(var(--brand-from)),
-      hsl(var(--brand-to))
+      hsl(var(--brand-from)) 0%,
+      hsl(var(--brand-to)) 100%
     );
     -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
     background-clip: text;
-    color: transparent;
   }
-}
 
-/* Slim, unobtrusive scrollbars */
-@layer utilities {
+  /* Brand gradient background */
+  .bg-brand-gradient {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--brand-from)) 0%,
+      hsl(var(--brand-to)) 100%
+    );
+  }
+
+  /* Glass card */
+  .glass {
+    @apply bg-card/80 backdrop-blur-md border border-border/50;
+  }
+
+  /* Slim scrollbars */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--border));
+    background-color: hsl(var(--muted-foreground) / 0.25);
     border-radius: 9999px;
-    border: 2px solid transparent;
-    background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Scrollbar none utility */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Sidebar gradient active indicator */
+  .nav-active-indicator {
+    position: relative;
+  }
+  .nav-active-indicator::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    border-radius: 0 3px 3px 0;
+    background: linear-gradient(
+      180deg,
+      hsl(var(--brand-from)) 0%,
+      hsl(var(--brand-to)) 100%
+    );
   }
 }

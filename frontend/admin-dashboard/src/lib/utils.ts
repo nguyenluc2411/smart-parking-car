@@ -47,3 +47,15 @@ export function formatDuration(seconds: number | null): string {
   return `${m}m`;
 }
 
+/**
+ * Trích xuất thông điệp lỗi từ response API hoặc trả về fallback.
+ * Dùng nhất quán trong tất cả mutation onError callback.
+ */
+export function getApiErrorMessage(
+  e: unknown,
+  fallback = "Thao tác thất bại"
+): string {
+  const err = e as { response?: { data?: { error?: { message?: string } } } };
+  return err?.response?.data?.error?.message ?? fallback;
+}
+

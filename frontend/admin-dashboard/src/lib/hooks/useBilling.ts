@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { billingApi } from "@/lib/api/billing";
 import type { InvoiceFilterParams, PaymentRequest, UpdateRateRequest } from "@/types";
 
@@ -6,6 +6,7 @@ export function useInvoices(params: InvoiceFilterParams) {
   return useQuery({
     queryKey: ["billing", "invoices", params],
     queryFn: () => billingApi.listInvoices(params).then((r) => r.data),
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -1,11 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData, type UseQueryOptions } from "@tanstack/react-query";
 import { parkingApi } from "@/lib/api/parking";
-import type { SessionFilterParams } from "@/types";
+import type { Page, SessionListItem, SessionFilterParams } from "@/types";
 
-export function useSessions(params: SessionFilterParams) {
+type SessionQueryOptions = Omit<
+  UseQueryOptions<Page<SessionListItem>>,
+  "queryKey" | "queryFn"
+>;
+
+export function useSessions(
+  params: SessionFilterParams,
+  options?: SessionQueryOptions
+) {
   return useQuery({
     queryKey: ["sessions", params],
     queryFn: () => parkingApi.listSessions(params).then((r) => r.data),
+    placeholderData: keepPreviousData,
+    ...options,
   });
 }
 

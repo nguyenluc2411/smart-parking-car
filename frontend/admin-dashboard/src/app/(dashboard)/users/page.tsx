@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, UserX, UserCheck, Loader2 } from "lucide-react";
+import { UserX, UserCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   useUsers,
-  useCreateUser,
   useUpdateUserRole,
   useDeleteUser,
   useActivateUser,
@@ -14,8 +13,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -35,122 +32,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { formatDateTime } from "@/lib/utils";
 
-function CreateUserDialog() {
-  const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("OPERATOR");
-  const create = useCreateUser();
-  const { toast } = useToast();
+const PAGE_SIZE = 20;
 
-  const onSubmit = () => {
-    if (!username.trim() || !email.trim() || !password.trim()) {
-      toast("Vui lòng điền đủ thông tin", { variant: "destructive" });
-      return;
-    }
-    create.mutate(
-      { username, email, password, role },
-      {
-        onSuccess: () => {
-          toast("Đã tạo người dùng", { variant: "success" });
-          setOpen(false);
-          setUsername("");
-          setEmail("");
-          setPassword("");
-          setRole("OPERATOR");
-        },
-        onError: () => toast("Tạo thất bại", { variant: "destructive" }),
-      }
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Tạo người dùng
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Tạo người dùng mới</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="username">Tên đăng nhập</Label>
-            <Input
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Mật khẩu</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Vai trò</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="OPERATOR">OPERATOR</SelectItem>
-                <SelectItem value="ADMIN">ADMIN</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setOpen(false)}
-            disabled={create.isPending}
-          >
-            Hủy
-          </Button>
-          <Button onClick={onSubmit} disabled={create.isPending}>
-            {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Tạo
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+import { CreateUserDialog } from "@/components/users/CreateUserDialog";
 
 export default function UsersPage() {
-  const query = useUsers();
+  const [page, setPage] = useState(0);
+  const query = useUsers({ page, size: PAGE_SIZE });
   const updateRole = useUpdateUserRole();
   const del = useDeleteUser();
   const activate = useActivateUser();
   const { toast } = useToast();
+
+  const totalPages = query.data?.totalPages ?? 0;
+  const totalElements = query.data?.totalElements ?? 0;
 
   const onRoleChange = (id: string, role: Role) => {
     updateRole.mutate(
@@ -184,82 +81,123 @@ export default function UsersPage() {
         action={<CreateUserDialog />}
       />
 
-      <Card>
+      <Card className="border border-border/50 shadow-sm">
         <CardContent className="pt-6">
           {query.isError ? (
             <ErrorState onRetry={() => query.refetch()} />
           ) : query.isLoading || !query.data ? (
             <Spinner />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tên đăng nhập</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Vai trò</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Ngày tạo</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {query.data.content.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.username}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {u.email}
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={u.role}
-                        onValueChange={(v) => onRoleChange(u.id, v as Role)}
-                      >
-                        <SelectTrigger className="h-8 w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="OPERATOR">OPERATOR</SelectItem>
-                          <SelectItem value="ADMIN">ADMIN</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      {u.isActive ? (
-                        <Badge variant="success">Hoạt động</Badge>
-                      ) : (
-                        <Badge variant="secondary">Vô hiệu</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDateTime(u.createdAt)}</TableCell>
-                    <TableCell>
-                      {u.isActive ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          title="Vô hiệu hóa"
-                          onClick={() => onDeactivate(u.id)}
-                          disabled={del.isPending}
-                        >
-                          <UserX className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-emerald-600"
-                          title="Kích hoạt"
-                          onClick={() => onActivate(u.id)}
-                          disabled={activate.isPending}
-                        >
-                          <UserCheck className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
+            <>
+              {/* Info row */}
+              <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
+                <span>Tổng cộng {totalElements} người dùng</span>
+                {totalPages > 1 && (
+                  <span>
+                    Trang {page + 1} / {totalPages}
+                  </span>
+                )}
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tên đăng nhập</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Vai trò</TableHead>
+                    <TableHead>Trạng thái</TableHead>
+                    <TableHead>Ngày tạo</TableHead>
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {query.data.content.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">{u.username}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {u.email}
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={u.role}
+                          onValueChange={(v) => onRoleChange(u.id, v as Role)}
+                        >
+                          <SelectTrigger className="h-8 w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="OPERATOR">OPERATOR</SelectItem>
+                            <SelectItem value="ADMIN">ADMIN</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        {u.isActive ? (
+                          <Badge variant="success">Hoạt động</Badge>
+                        ) : (
+                          <Badge variant="secondary">Vô hiệu</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>{formatDateTime(u.createdAt)}</TableCell>
+                      <TableCell>
+                        {u.isActive ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive"
+                            title="Vô hiệu hóa"
+                            aria-label="Vô hiệu hóa"
+                            onClick={() => onDeactivate(u.id)}
+                            disabled={del.isPending}
+                          >
+                            <UserX className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-success"
+                            title="Kích hoạt"
+                            aria-label="Kích hoạt"
+                            onClick={() => onActivate(u.id)}
+                            disabled={activate.isPending}
+                          >
+                            <UserCheck className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Server-side Pagination */}
+              {totalPages > 1 && (
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || query.isFetching}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Trước
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    {page + 1} / {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1 || query.isFetching}
+                  >
+                    Sau
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
