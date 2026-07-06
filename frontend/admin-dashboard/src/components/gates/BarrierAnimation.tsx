@@ -28,13 +28,13 @@ export function BarrierAnimation({
         <span
           className={`h-3 w-3 rounded-full transition-colors duration-300 ${
             open
-              ? "bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.55)]"
-              : "bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.55)]"
+              ? "bg-success shadow-[0_0_8px_2px_rgba(34,197,94,0.55)]"
+              : "bg-destructive shadow-[0_0_8px_2px_rgba(239,68,68,0.55)]"
           }`}
         />
         <span
           className={`text-xs font-semibold ${
-            open ? "text-green-600" : "text-red-600"
+            open ? "text-success" : "text-destructive"
           }`}
         >
           {open ? "Đang mở" : "Đang chắn"}

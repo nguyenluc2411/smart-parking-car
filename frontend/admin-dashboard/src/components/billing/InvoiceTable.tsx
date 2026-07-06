@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import type { Invoice } from "@/types";
 import {
   Table,
@@ -12,7 +13,7 @@ import {
 import { InvoiceStatusBadge } from "@/components/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
-export function InvoiceTable({
+export const InvoiceTable = React.memo(function InvoiceTable({
   rows,
   selectedId,
   onSelect,
@@ -46,12 +47,16 @@ export function InvoiceTable({
             key={inv.invoiceId}
             onClick={() => onSelect(inv)}
             data-state={inv.sessionId === selectedId ? "selected" : undefined}
-            className="cursor-pointer"
+            className="cursor-pointer group"
           >
-            <TableCell className="font-medium">{inv.plateNumber}</TableCell>
-            <TableCell>{formatDateTime(inv.exitTime)}</TableCell>
-            <TableCell>{inv.durationMinutes} phút</TableCell>
-            <TableCell className="text-right font-medium">
+            <TableCell className="font-medium">
+              <span className="font-mono text-xs font-semibold bg-secondary/50 border border-border/50 px-2 py-1 rounded transition-colors group-hover:bg-secondary">
+                {inv.plateNumber}
+              </span>
+            </TableCell>
+            <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDateTime(inv.exitTime)}</TableCell>
+            <TableCell className="tabular-nums text-[13px] text-muted-foreground">{inv.durationMinutes} phút</TableCell>
+            <TableCell className="text-right font-medium tabular-nums text-foreground">
               {formatCurrency(inv.amount)}
             </TableCell>
             <TableCell>
@@ -62,4 +67,4 @@ export function InvoiceTable({
       </TableBody>
     </Table>
   );
-}
+});
