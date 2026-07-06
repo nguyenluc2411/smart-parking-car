@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parkingApi } from "@/lib/api/parking";
 import type {
   CreateSlotRequest,
@@ -11,6 +11,9 @@ export function useSlotAvailability() {
     queryKey: ["slots", "availability"],
     queryFn: () => parkingApi.getSlotAvailability().then((r) => r.data),
     refetchInterval: 10_000,
+    // Dừng polling khi tab bị ẩn, tiết kiệm tài nguyên
+    refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -19,6 +22,9 @@ export function useSlots() {
     queryKey: ["slots", "list"],
     queryFn: () => parkingApi.listSlots().then((r) => r.data),
     refetchInterval: 10_000,
+    // Dừng polling khi tab bị ẩn, tiết kiệm tài nguyên
+    refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 

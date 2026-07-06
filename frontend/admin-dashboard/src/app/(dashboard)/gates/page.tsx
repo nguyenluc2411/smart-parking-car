@@ -38,9 +38,9 @@ export default function GatesPage() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   {gate.direction === "IN" ? (
-                    <ArrowDownToLine className="h-5 w-5 text-green-600" />
+                    <ArrowDownToLine className="h-5 w-5 text-success" />
                   ) : (
-                    <ArrowUpFromLine className="h-5 w-5 text-blue-600" />
+                    <ArrowUpFromLine className="h-5 w-5 text-info" />
                   )}
                   {gate.gateCode}
                 </CardTitle>

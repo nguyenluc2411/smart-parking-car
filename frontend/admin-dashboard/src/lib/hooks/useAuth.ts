@@ -11,7 +11,7 @@ export function useLogin() {
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       adminApi.login(username, password),
     onSuccess: (res, vars) => {
-      setAuth(res.data.accessToken, res.data.role, vars.username);
+      setAuth(res.data.accessToken, res.data.refreshToken, res.data.role, vars.username);
       router.push("/dashboard");
     },
   });

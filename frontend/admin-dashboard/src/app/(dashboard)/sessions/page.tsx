@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSessions } from "@/lib/hooks/useSessions";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import type { SessionStatus } from "@/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SessionTable } from "@/components/sessions/SessionTable";
@@ -39,6 +40,8 @@ function SessionsContent() {
   const [plate, setPlate] = useState(plateParam);
   const [page, setPage] = useState(0);
 
+  const debouncedPlate = useDebounce(plate, 400);
+
   // Re-apply when navigating to a new alert while already on this page.
   useEffect(() => {
     setPlate(plateParam);
@@ -48,12 +51,12 @@ function SessionsContent() {
   // Đổi bộ lọc → quay về trang đầu.
   useEffect(() => {
     setPage(0);
-  }, [status, date, plate]);
+  }, [status, date, debouncedPlate]);
 
   const query = useSessions({
     status: status === "ALL" ? undefined : status,
     date: date || undefined,
-    plate: plate || undefined,
+    plate: debouncedPlate || undefined,
     page,
     size: 20,
   });
@@ -65,7 +68,7 @@ function SessionsContent() {
         description="Danh sách các phiên vào/ra bãi"
       />
 
-      <Card>
+      <Card className="border border-border/50 shadow-sm">
         <CardContent className="space-y-4 pt-6">
           <div className="flex flex-col gap-3 sm:flex-row">
             <Select

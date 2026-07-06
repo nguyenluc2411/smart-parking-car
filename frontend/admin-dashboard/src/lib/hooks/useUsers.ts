@@ -1,11 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { adminApi } from "@/lib/api/admin";
 import type { CreateUserRequest, Role } from "@/types";
 
-export function useUsers() {
+export interface UseUsersParams {
+  page?: number;
+  size?: number;
+}
+
+export function useUsers(params?: UseUsersParams) {
   return useQuery({
-    queryKey: ["users"],
-    queryFn: () => adminApi.listUsers().then((r) => r.data),
+    queryKey: ["users", params],
+    queryFn: () => adminApi.listUsers(params).then((r) => r.data),
+    // Giữ dữ liệu cũ trong khi chuyển trang, tránh flash trắng
+    placeholderData: keepPreviousData,
   });
 }
 

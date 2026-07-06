@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parkingApi } from "@/lib/api/parking";
 import type { GateOverrideRequest } from "@/types";
 
@@ -7,6 +7,9 @@ export function useGates() {
     queryKey: ["gates"],
     queryFn: () => parkingApi.listGates().then((r) => r.data),
     refetchInterval: 10_000,
+    // Dừng polling khi tab bị ẩn, tiết kiệm tài nguyên
+    refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 

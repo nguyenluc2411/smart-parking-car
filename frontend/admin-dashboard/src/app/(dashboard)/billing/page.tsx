@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Invoice, InvoiceStatus } from "@/types";
 import { useInvoice, useInvoices } from "@/lib/hooks/useBilling";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { InvoiceCard } from "@/components/billing/InvoiceCard";
 import { InvoiceTable } from "@/components/billing/InvoiceTable";
@@ -38,15 +39,17 @@ function BillingContent() {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Invoice | null>(null);
 
+  const debouncedPlate = useDebounce(plate, 400);
+
   // Đổi bộ lọc → quay về trang đầu.
   useEffect(() => {
     setPage(0);
-  }, [status, date, plate]);
+  }, [status, date, debouncedPlate]);
 
   const query = useInvoices({
     status: status === "ALL" ? undefined : status,
     date: date || undefined,
-    plate: plate || undefined,
+    plate: debouncedPlate || undefined,
     page,
     size: 20,
   });
@@ -72,14 +75,14 @@ function BillingContent() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 border border-border/50 shadow-sm">
           <CardContent className="space-y-4 pt-6">
             <div className="flex flex-col gap-3 sm:flex-row">
               <Select
                 value={status}
                 onValueChange={(v) => setStatus(v as InvoiceStatus | "ALL")}
               >
-                <SelectTrigger className="sm:w-52">
+                <SelectTrigger className="sm:w-52 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -94,13 +97,13 @@ function BillingContent() {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="sm:w-44"
+                className="sm:w-44 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
               />
               <Input
                 placeholder="Tìm biển số…"
                 value={plate}
                 onChange={(e) => setPlate(e.target.value)}
-                className="sm:w-52"
+                className="sm:w-52 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
               />
             </div>
 
@@ -130,14 +133,14 @@ function BillingContent() {
           {selected ? (
             <div className="space-y-4">
               <InvoiceCard invoice={selected} />
-              <Card>
+              <Card className="border border-border/50 shadow-sm">
                 <CardContent className="pt-6">
                   <PaymentDialog invoice={selected} />
                 </CardContent>
               </Card>
             </div>
           ) : (
-            <Card>
+            <Card className="border border-border/50 shadow-sm">
               <CardContent className="py-12 text-center text-sm text-muted-foreground">
                 Chọn một hóa đơn ở danh sách để xem chi tiết và thu tiền.
               </CardContent>

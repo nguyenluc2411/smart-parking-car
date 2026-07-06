@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parkingApi } from "@/lib/api/parking";
 import { subscribeAlerts } from "@/lib/api/alertStream";
 import { useToast } from "@/components/ui/toast";
@@ -10,6 +10,10 @@ export function useAlerts(status: AlertStatus = "NEW") {
     queryKey: ["alerts", status],
     queryFn: () => parkingApi.listAlerts(status).then((r) => r.data),
     refetchInterval: 30_000, // safety net if the SSE stream drops
+    // Dừng polling khi tab bị ẩn
+    refetchIntervalInBackground: false,
+    // Giữ dữ liệu cũ khi đang refetch, tránh badge count bị clear
+    placeholderData: keepPreviousData,
   });
 }
 

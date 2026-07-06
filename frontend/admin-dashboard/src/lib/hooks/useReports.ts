@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { billingApi } from "@/lib/api/billing";
 
-export function useDailyReport(date?: string) {
+export function useDailyReport(date?: string, options?: { refetchInterval?: number; refetchIntervalInBackground?: boolean }) {
   return useQuery({
     queryKey: ["report", "daily", date ?? "today"],
     queryFn: () => billingApi.getDailyReport(date).then((r) => r.data),
+    ...options,
   });
 }
 
