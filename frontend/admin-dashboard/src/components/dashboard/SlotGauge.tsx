@@ -32,10 +32,6 @@ const segmentConfig = [
 export const SlotGauge = React.memo(function SlotGauge({ data }: { data: SlotAvailability }) {
   const pct = Math.round(data.occupancyRate * 100);
 
-  // Color of progress bar based on occupancy
-  const barColor =
-    pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-indigo-500";
-
   const barGradient =
     pct >= 90
       ? "linear-gradient(90deg, hsl(var(--destructive)) 0%, hsl(var(--destructive) / 0.85) 100%)"

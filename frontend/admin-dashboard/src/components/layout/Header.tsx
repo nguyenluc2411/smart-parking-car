@@ -1,13 +1,12 @@
 "use client";
 
-import { LogOut, User, ChevronDown } from "lucide-react";
+import { LogOut, ChevronDown } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useLogout } from "@/lib/hooks/useAuth";
 import { MobileNav } from "./MobileNav";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "./ThemeToggle";
 import { Breadcrumbs } from "./Breadcrumbs";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Avatar,

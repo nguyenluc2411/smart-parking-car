@@ -21,7 +21,7 @@ const dotColors: Record<Variant & string, string> = {
 };
 
 function StatusBadgeBase({ variant = "secondary", label }: { variant?: Variant; label: string }) {
-  const dotColor = dotColors[variant as string] || "bg-muted-foreground";
+  const dotColor = dotColors[variant as keyof typeof dotColors] || "bg-muted-foreground";
   return (
     <Badge variant={variant} className="gap-1.5 px-2.5">
       <span className={cn("h-1.5 w-1.5 rounded-full", dotColor)} />
