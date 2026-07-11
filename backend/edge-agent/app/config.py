@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     # Barrier
     gate_auto_close_seconds: int = 10   # BR-006-2
 
+    # Phase 1 — automatic RTSP/USB capture (disabled by default; demo uses browser webcam).
+    auto_capture_enabled: bool = False
+    auto_capture_entry_source: str = ""   # e.g. "0" or rtsp://... → GATE_ENTRY_01 IN
+    auto_capture_exit_source: str = ""    # e.g. "1" or rtsp://... → GATE_EXIT_01 OUT
+    auto_capture_interval: float = 2.0      # seconds between burst attempts when idle
+    auto_capture_cooldown: float = 8.0      # seconds after publish (same as camera_agent)
+    auto_capture_frames: int = 5
+    auto_capture_frame_gap: float = 0.2
+    auto_capture_min_votes: int = 2
+    auto_capture_min_confidence: float | None = None  # None = runtime confidence_threshold
+
     # MinIO / object storage — lưu frame chụp xe vào/ra để truy vết. Trống endpoint = tắt (không lưu).
     minio_endpoint: str = ""             # vd "minio:9000" (nội bộ compose)
     minio_access_key: str = ""

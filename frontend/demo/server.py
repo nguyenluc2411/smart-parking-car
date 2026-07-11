@@ -137,6 +137,44 @@ async def detect_burst(images: list[UploadFile] = File(...),
     return JSONResponse(status_code=r.status_code, content=body)
 
 
+@app.post("/api/detect/presence")
+async def detect_presence(
+    image: UploadFile = File(...),
+    roi_x: float = Form(0.08),
+    roi_y: float = Form(0.38),
+    roi_w: float = Form(0.84),
+    roi_h: float = Form(0.24),
+    min_confidence: float = Form(0.15),
+):
+    """Proxy vehicle-only presence check (full frame + guide ROI from browser)."""
+    content = await image.read()
+    async with httpx.AsyncClient(timeout=45) as c:
+        r = await c.post(
+            f"{EDGE_URL}/api/v1/detect/presence",
+            headers={"X-API-Key": EDGE_API_KEY},
+            files={"image": (image.filename or "frame.jpg", content, image.content_type or "image/jpeg")},
+            data={
+                "roi_x": str(roi_x),
+                "roi_y": str(roi_y),
+                "roi_w": str(roi_w),
+                "roi_h": str(roi_h),
+                "min_confidence": str(min_confidence),
+                "vehicle_only": "true",
+            },
+        )
+    try:
+        body = r.json()
+    except Exception:  # noqa: BLE001
+        body = {"error": r.text, "present": False}
+    if r.status_code == 404:
+        body = {
+            "present": False,
+            "error": "edge-agent chưa có API /detect/presence — rebuild: docker compose up -d --build edge-agent",
+            "detail": body.get("detail") if isinstance(body, dict) else str(body),
+        }
+    return JSONResponse(status_code=200 if r.status_code == 404 else r.status_code, content=body)
+
+
 @app.post("/api/momo")
 async def momo_create(plate: str):
     """Find the plate's latest CLOSED session and create a MoMo payment for its invoice."""
@@ -189,6 +227,19 @@ async def payos_status(session_id: str, order_code: str):
         r = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/payos/status",
                             params={"orderCode": order_code})
         return JSONResponse(status_code=r.status_code, content=r.json().get("data") or r.json())
+
+
+@app.get("/api/invoice/status")
+async def invoice_status(session_id: str):
+    """Invoice status only — catches webhook settlement without re-querying MoMo/PayOS."""
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{session_id}")
+        data = r.json().get("data") or r.json()
+        return JSONResponse(status_code=r.status_code, content={
+            "sessionId": session_id,
+            "status": (data.get("status") or "").upper(),
+            "amount": data.get("amount"),
+        })
 
 
 def _norm_plate(p: str | None) -> str:
