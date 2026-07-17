@@ -52,27 +52,97 @@ def _parse_gate_configs(settings: Settings) -> list[GateAutoConfig]:
     return configs
 
 
-def _capture_burst_frames(source: str, frames: int, gap: float) -> list[bytes]:
-    import cv2  # noqa: PLC0415 — optional; only when auto-capture enabled
+class PersistentCamera:
+    """Manages a single persistent cv2.VideoCapture connection in a background thread.
 
-    src: str | int = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(src)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open camera source: {source}")
-    out: list[bytes] = []
-    try:
-        for i in range(frames):
-            ok, frame = cap.read()
-            if not ok:
-                break
-            ok_enc, buf = cv2.imencode(".jpg", frame)
-            if ok_enc:
-                out.append(buf.tobytes())
-            if gap > 0 and i < frames - 1:
-                time.sleep(gap)
-    finally:
-        cap.release()
-    return out
+    Prevents thread starvation and OS device lockups caused by repeatedly opening and
+    closing the camera device node or socket every 2 seconds.
+    """
+    def __init__(self, source: str) -> None:
+        self.source = source
+        self.running = False
+        self._last_frame: bytes | None = None
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._error: str | None = None
+
+    def start(self) -> None:
+        if self.running:
+            return
+        self.running = True
+        import threading  # noqa: PLC0415
+        self._thread = threading.Thread(target=self._run, name=f"cam-reader-{self.source}", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def get_latest_frame(self) -> bytes | None:
+        with self._lock:
+            return self._last_frame
+
+    @property
+    def error(self) -> str | None:
+        with self._lock:
+            return self._error
+
+    def _run(self) -> None:
+        import time  # noqa: PLC0415
+        import cv2  # noqa: PLC0415
+        src: str | int = int(self.source) if self.source.isdigit() else self.source
+        cap = None
+
+        while self.running:
+            if cap is None or not cap.isOpened():
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                try:
+                    cap = cv2.VideoCapture(src)
+                    if not cap.isOpened():
+                        with self._lock:
+                            self._error = f"Cannot open camera source: {self.source}"
+                        time.sleep(2.0)
+                        continue
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    with self._lock:
+                        self._error = None
+                except Exception as e:
+                    with self._lock:
+                        self._error = f"Error opening source {self.source}: {e}"
+                    time.sleep(2.0)
+                    continue
+
+            try:
+                ok, frame = cap.read()
+                if ok:
+                    ok_enc, buf = cv2.imencode(".jpg", frame)
+                    if ok_enc:
+                        with self._lock:
+                            self._last_frame = buf.tobytes()
+                            self._error = None
+                else:
+                    with self._lock:
+                        self._error = "Camera read returned false"
+                    cap.release()
+                    cap = None
+                    time.sleep(1.0)
+            except Exception as e:
+                with self._lock:
+                    self._error = f"Error reading frame: {e}"
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                time.sleep(1.0)
+
+        if cap is not None:
+            cap.release()
+
+
+import threading  # noqa: E402
 
 
 class AutoCaptureService:
@@ -93,6 +163,7 @@ class AutoCaptureService:
         self._producer = producer
         self._fsm = GateCaptureFsm(settings.auto_capture_cooldown)
         self._zone: dict[tuple[str, str], ZoneOccupancyTracker] = {}
+        self._cameras: dict[str, PersistentCamera] = {}
         self._tasks: list[asyncio.Task] = []
         self._running = False
         self._last_error: str | None = None
@@ -123,6 +194,13 @@ class AutoCaptureService:
             return
         configs = _parse_gate_configs(self._settings)
         self._running = True
+
+        for cfg in configs:
+            if cfg.source not in self._cameras:
+                cam = PersistentCamera(cfg.source)
+                self._cameras[cfg.source] = cam
+                cam.start()
+
         for cfg in configs:
             task = asyncio.create_task(self._watch_gate(cfg), name=f"auto-{cfg.gate_id}")
             self._tasks.append(task)
@@ -136,6 +214,10 @@ class AutoCaptureService:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
+        for cam in self._cameras.values():
+            cam.stop()
+        self._cameras.clear()
+
     async def _watch_gate(self, cfg: GateAutoConfig) -> None:
         s = self._settings
         interval = s.auto_capture_interval
@@ -143,34 +225,50 @@ class AutoCaptureService:
         if key not in self._zone:
             self._zone[key] = ZoneOccupancyTracker(leave_streak_need=4)
         zone = self._zone[key]
+
+        cam = self._cameras.get(cfg.source)
+        if not cam:
+            logger.error("No persistent camera reader for source %s", cfg.source)
+            return
+
         while self._running:
             try:
                 if not self._fsm.can_trigger(cfg.gate_id, cfg.direction):
                     await asyncio.sleep(0.3)
                     continue
 
-                probe_frames = await asyncio.to_thread(
-                    _capture_burst_frames, cfg.source, 1, 0.0)
-                if not probe_frames:
-                    self._last_error = f"No frames from {cfg.source}"
+                probe_frame = cam.get_latest_frame()
+                cam_err = cam.error
+                if cam_err:
+                    self._last_error = cam_err
+                    await asyncio.sleep(interval)
+                    continue
+
+                if not probe_frame:
+                    self._last_error = f"No frames from camera source {cfg.source} yet"
                     await asyncio.sleep(interval)
                     continue
 
                 presence = self._alpr.detect_presence(
-                    probe_frames[0], roi_x=0.08, roi_y=0.38, roi_w=0.84, roi_h=0.24,
+                    probe_frame, roi_x=0.08, roi_y=0.38, roi_w=0.84, roi_h=0.24,
                     vehicle_only=True)
                 zone_update = zone.update(presence.present, presence.source)
                 if zone_update.action != "scan":
                     await asyncio.sleep(interval)
                     continue
 
-                frames = await asyncio.to_thread(
-                    _capture_burst_frames, cfg.source, s.auto_capture_frames,
-                    s.auto_capture_frame_gap)
+                frames = []
+                for i in range(s.auto_capture_frames):
+                    f = cam.get_latest_frame()
+                    if f:
+                        frames.append(f)
+                    if s.auto_capture_frame_gap > 0 and i < s.auto_capture_frames - 1:
+                        await asyncio.sleep(s.auto_capture_frame_gap)
+
                 self._last_scan_at = time.time()
 
                 if not frames:
-                    self._last_error = f"No frames from {cfg.source}"
+                    self._last_error = f"No frames from {cfg.source} during burst"
                     await asyncio.sleep(interval)
                     continue
 
