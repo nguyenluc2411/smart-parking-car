@@ -5,14 +5,14 @@
 
 ---
 
-## Trạng thái hiện tại (06/2026)
+## Trạng thái hiện tại (07/2026)
 
 ### Phase: Backend + Frontend + Deploy — chạy thông end-to-end ✅
 
 ### Đã hoàn thành
 - [x] Docs (architecture, schema, business-rules, api-contracts, decisions) — đã sync với code
-- [x] **parking-service** (8081): create/close session qua Kafka + REST (sessions/slots/gates/whitelist/resolve/manual-entry/exit) + JWT + outbox + Flyway V1–V3
-- [x] **billing-service** (8082): invoice qua Kafka (BR-004 **Split Block**) + payment REST + rates GET/PUT + reports daily/monthly + JWT + outbox + Flyway V1–V2
+- [x] **parking-service** (8081): create/close session qua Kafka + REST (sessions/slots/gates/whitelist/resolve/manual-entry/exit) + JWT + outbox + Flyway V1–V7
+- [x] **billing-service** (8082): invoice qua Kafka (BR-004 **Split Block**) + payment REST + rates GET/PUT + reports daily/monthly + JWT + outbox + Flyway V1–V6
 - [x] **admin-service** (8083): audit-all (Kafka, mọi topic + DLT) + auth/JWT issuer (login/refresh/logout) + users CRUD + audit-logs REST + Flyway V1
 - [x] **edge-agent** (8000, Python/FastAPI): ALPR simulate|real + barrier simulator (auto-close 10s) + simulate/trigger + detect + config + health/metrics
 - [x] **admin-dashboard** (Next.js 14): scaffold + all pages, nối backend thật (CORS + USE_MOCK=false), build pass. **UI rebrand Indigo–Cyan** (font Inter, gradient logo/statcard/gauge, sidebar+nav polish, login hào quang) — build 14/14 pass
@@ -26,6 +26,33 @@
 - [x] edge real-ALPR: tooling (RESEARCH.md, alpr_eval.py, camera_agent.py) + `plate.canonicalize()`
       (dựng dấu `-` + sửa nhầm ký tự O/0, I/1… theo vị trí) + `best_plate_from_ocr()` (ghép biển bị
       OCR tách nhiều mảnh) — 16 test pass
+- [x] **BR-005-7 thu tiền mặt lúc mất điện**: `CASH_OFFLINE` + `offlineVoucherNo`/`paidAt` (billing V5),
+      guard "chỉ hóa đơn PENDING mới trả được" (`SELECT … FOR UPDATE` + UNIQUE `payments.invoice_id`),
+      màn nhập bù ở `frontend/demo` (đăng nhập bằng tài khoản **của chính nhân viên** để `received_by` đúng người)
+- [x] **Invoice breakdown + collection summary** (billing V6): hóa đơn kèm các dòng normal/peak/overnight
+      (bản chụp giá lúc phát hành, `null` với hóa đơn cũ); report daily/monthly thêm `collected`
+      (`cashTotal`/`gatewayTotal`/`byMethod`) — **đã tính tiền** vs **đã thu** là hai số khác nhau, chênh lệch là thứ cần soi
+- [x] **BR-003-6 bản đồ bãi**: `slots.grid_row/grid_col` (parking V6) + re-flow theo `slot_code` khi
+      zone thêm/xóa slot; `GET /slots` trả tọa độ
+- [x] **BR-009 đặt chỗ trước cho tài xế** (parking V7): `reservations` + `slots.RESERVED`,
+      `POST|GET|DELETE /api/v1/driver/reservations`, job quét hết hạn 60s, chống overbooking bằng
+      **unique index từng phần** (1 lượt HELD/biển, 1 lượt HELD/slot), xe có đặt chỗ vào bãi được ưu
+      tiên trước cả kiểm tra "bãi đầy", khóa quyền đặt sau 3 lần bỏ hẹn/30 ngày — 12 test
+- [x] `RESERVED` tính là **đã dùng** ở `availability`/`occupancyRate` + resync **không** giải phóng slot
+      đang được giữ (BR-003-4b) — lỗ hổng này sẽ trao chỗ đã hứa cho xe vãng lai kế tiếp
+- [x] Docs sync: BR-003-4b/BR-003-6/BR-009 + endpoint reservations + schema `reservations`/grid cột
+- [x] **E2E với DB thật (2026-07-22)**: `docker compose up -d --build`, 4 migration mới migrate sạch;
+      kịch bản đặt chỗ chạy thật đủ 17 check (grid coords → đặt chỗ → resync không giải phóng →
+      chặn đặt trùng → xe vào nhận đúng slot đã giữ → hủy trả slot) + 4 check guard BR-009-3b.
+      **Ba thứ chỉ e2e mới lộ ra:**
+      1. billing V6 **gãy trên DB thật**: đã tồn tại 1 hóa đơn bị thu **hai lần** (2 payment `ONLINE`
+         cách nhau 3,4s) nên `uq_payments_invoice_id` không tạo được. V6 nay giữ payment sớm nhất và
+         **dời** bản trùng sang `payment_duplicates` (không xóa — đó là tiền đã chuyển thật).
+         → **Cần đối soát với cổng thanh toán và hoàn tiền nếu khách bị trừ 2 lần.**
+      2. `PATCH /slots/{id}/status`, `DELETE /slots/{id}`, `provision` thu nhỏ zone đều sửa được slot
+         đang bị giữ → bỏ rơi lượt đặt. Đã chặn 409 (BR-009-3b).
+      3. `node-exporter` mount `/:/host:ro,rslave` làm **gãy cả `docker compose up`** trên Docker
+         Desktop Windows → đổi sang `ro`.
 
 ### Mobile-app (Flutter) — bước tiếp theo
 - [ ] **Phase 2 — flavor `driver`**: BỊ CHẶN, cần backend mở rộng. Trình tự: soạn đề xuất → cập nhật `docs/api-contracts.md` + `docs/database-schema.md` + ADR → duyệt → code. Cần: tài khoản tài xế, auth riêng (OTP/SĐT), endpoint my-sessions/my-invoices/pay, gắn biển số với tài khoản.
@@ -57,5 +84,9 @@ docker compose up -d --build    # 3 db + kafka + 4 service + prometheus/grafana
 ---
 
 ## Last updated
-2026-06-23 — Rebrand UI cả 2 frontend (Indigo–Cyan) chuẩn bị demo; web build 14/14 pass,
-mobile analyze sạch. Trước đó: edge real-ALPR (canonicalize + best_plate_from_ocr), BR-004-7
+2026-07-22 — BR-009 đặt chỗ trước (parking V7) + BR-003-6 bản đồ lưới (V6); BR-005-7 thu tiền mặt
+lúc mất điện + invoice breakdown/collected (billing V5–V6). Sửa 2 chỗ `RESERVED` bị bỏ sót:
+`availability` không đếm, và resync giải phóng nhầm slot đang giữ. Docs đã sync; parking + billing
+test xanh (58 + 32), dashboard build 14/14 pass, **e2e với DB thật đã chạy** (21 check pass).
+**Còn nợ: đối soát 1 hóa đơn bị thu 2 lần đang nằm trong `billing_db.payment_duplicates`.**
+Trước đó: rebrand UI Indigo–Cyan, edge real-ALPR (canonicalize + best_plate_from_ocr), BR-004-7
