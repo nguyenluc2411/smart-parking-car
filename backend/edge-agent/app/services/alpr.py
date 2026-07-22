@@ -51,6 +51,17 @@ class Detection:
     processing_ms: int
 
 
+@dataclass
+class PresenceResult:
+    """Lightweight ROI target check — no OCR, no Kafka."""
+    present: bool
+    confidence: float
+    bbox: dict[str, int] | None
+    in_roi: bool
+    processing_ms: int
+    source: str = ""  # plate | vehicle | motion | none
+
+
 def _box_bounds(box) -> tuple[int, int, int, int]:
     """An EasyOCR box (4 [x, y] points) -> (min_x, min_y, max_x, max_y)."""
     xs = [int(p[0]) for p in box]
@@ -142,6 +153,7 @@ class AlprService:
         self.char_model_path = char_model_path  # YOLOv8 char-detection model (detector="yolo_char")
         self._model = None       # YOLO plate detector, lazily loaded
         self._char_model = None  # YOLO char detector, lazily loaded
+        self._vehicle_model = None  # YOLOv8n COCO — vehicle presence in ROI
         self._reader = None      # EasyOCR reader, lazily loaded + reused
         self._paddle = None      # PaddleOCR reader, lazily loaded + reused
 
@@ -293,6 +305,207 @@ class AlprService:
         except Exception:  # never let an ALPR failure crash the request
             logger.exception("Real ALPR failed")
             return None
+
+    def detect_presence(
+        self,
+        image_bytes: bytes,
+        *,
+        roi_x: float = 0.0,
+        roi_y: float = 0.0,
+        roi_w: float = 1.0,
+        roi_h: float = 1.0,
+        min_confidence: float = 0.15,
+        vehicle_only: bool = True,
+    ) -> PresenceResult:
+        """Fast ROI probe: vehicle YOLO (primary) → plate YOLO if allowed. No motion heuristic."""
+        start = time.perf_counter()
+        if not image_bytes:
+            return PresenceResult(False, 0.0, None, False, 0, "none")
+
+        import numpy as np  # noqa: WPS433
+        import cv2  # noqa: WPS433
+
+        frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+
+        if self.mode != "real":
+            if vehicle_only:
+                ms = int((time.perf_counter() - start) * 1000)
+                return PresenceResult(False, 0.0, None, False, ms, "none")
+            result = self._presence_variance(frame, roi_x, roi_y, roi_w, roi_h, start)
+            result.processing_ms = int((time.perf_counter() - start) * 1000)
+            return result
+
+        try:
+            if self.detector == "ocr_only":
+                ms = int((time.perf_counter() - start) * 1000)
+                return PresenceResult(False, 0.0, None, False, ms, "none")
+
+            vehicle = self._presence_vehicle_yolo(
+                frame, roi_x, roi_y, roi_w, roi_h, 0.25, start)
+            if vehicle.present:
+                return vehicle
+            if not vehicle_only:
+                plate = self._presence_plate_yolo(
+                    frame, roi_x, roi_y, roi_w, roi_h, min_confidence, start)
+                if plate.present:
+                    return plate
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+        except Exception:
+            logger.exception("Presence detection failed")
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+
+    @staticmethod
+    def _box_overlaps_roi(x1: int, y1: int, x2: int, y2: int, img_w: int, img_h: int,
+                          roi_x: float, roi_y: float, roi_w: float, roi_h: float,
+                          min_overlap: float = 0.08) -> bool:
+        """True when at least ``min_overlap`` of the box area lies inside the normalized ROI."""
+        if img_w <= 0 or img_h <= 0:
+            return False
+        bx1, by1 = x1 / img_w, y1 / img_h
+        bx2, by2 = x2 / img_w, y2 / img_h
+        rx1, ry1 = roi_x, roi_y
+        rx2, ry2 = roi_x + roi_w, roi_y + roi_h
+        ix1, iy1 = max(bx1, rx1), max(by1, ry1)
+        ix2, iy2 = min(bx2, rx2), min(by2, ry2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return False
+        inter = (ix2 - ix1) * (iy2 - iy1)
+        box_area = max((bx2 - bx1) * (by2 - by1), 1e-9)
+        return (inter / box_area) >= min_overlap
+
+    @staticmethod
+    def _center_in_roi(cx: float, cy: float, img_w: int, img_h: int,
+                       roi_x: float, roi_y: float, roi_w: float, roi_h: float) -> bool:
+        nx, ny = cx / max(img_w, 1), cy / max(img_h, 1)
+        return roi_x <= nx <= roi_x + roi_w and roi_y <= ny <= roi_y + roi_h
+
+    def _presence_plate_yolo(self, frame, roi_x: float, roi_y: float,
+                            roi_w: float, roi_h: float, min_confidence: float,
+                            start: float) -> PresenceResult:
+        model = self._load_model()
+        results = model(frame, verbose=False)
+        boxes = results[0].boxes if results else None
+        h, w = frame.shape[:2]
+        if boxes is None or len(boxes) == 0:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+
+        best_conf = 0.0
+        best_bbox: dict[str, int] | None = None
+        for box in boxes:
+            conf = float(box.conf[0])
+            if conf < min_confidence:
+                continue
+            x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            in_roi = (
+                self._box_overlaps_roi(x1, y1, x2, y2, w, h, roi_x, roi_y, roi_w, roi_h)
+                or self._center_in_roi(cx, cy, w, h, roi_x, roi_y, roi_w, roi_h)
+            )
+            if not in_roi:
+                continue
+            if conf > best_conf:
+                best_conf = conf
+                best_bbox = {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}
+
+        ms = int((time.perf_counter() - start) * 1000)
+        if best_bbox is None:
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+        return PresenceResult(True, round(best_conf, 4), best_bbox, True, ms, "plate")
+
+    _VEHICLE_CLASSES = frozenset({2, 3, 5, 7})  # COCO: car, motorcycle, bus, truck
+
+    def _load_vehicle_model(self):
+        if self._vehicle_model is None:
+            from ultralytics import YOLO  # noqa: WPS433
+            self._vehicle_model = YOLO("yolov8n.pt")
+        return self._vehicle_model
+
+    def _presence_vehicle_yolo(self, frame, roi_x: float, roi_y: float,
+                               roi_w: float, roi_h: float, min_confidence: float,
+                               start: float) -> PresenceResult:
+        """Detect car/motorcycle/bus/truck overlapping the guide ROI."""
+        model = self._load_vehicle_model()
+        results = model(frame, verbose=False, imgsz=416, classes=list(self._VEHICLE_CLASSES))
+        boxes = results[0].boxes if results else None
+        h, w = frame.shape[:2]
+        if boxes is None or len(boxes) == 0:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+
+        best_conf = 0.0
+        best_bbox: dict[str, int] | None = None
+        for box in boxes:
+            conf = float(box.conf[0])
+            if conf < min_confidence:
+                continue
+            x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
+            if not self._box_overlaps_roi(x1, y1, x2, y2, w, h, roi_x, roi_y, roi_w, roi_h, 0.15):
+                continue
+            if conf > best_conf:
+                best_conf = conf
+                best_bbox = {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}
+
+        ms = int((time.perf_counter() - start) * 1000)
+        if best_bbox is None:
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+        return PresenceResult(True, round(best_conf, 4), best_bbox, True, ms, "vehicle")
+
+    def _presence_yolo(self, image_bytes: bytes, roi_x: float, roi_y: float,
+                       roi_w: float, roi_h: float, min_confidence: float,
+                       start: float) -> PresenceResult:
+        import numpy as np  # noqa: WPS433
+        import cv2  # noqa: WPS433
+
+        frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+
+        if self.detector == "ocr_only":
+            return self._presence_variance(frame, roi_x, roi_y, roi_w, roi_h, start)
+
+        return self._presence_plate_yolo(frame, roi_x, roi_y, roi_w, roi_h, min_confidence, start)
+
+    def _presence_variance(self, frame, roi_x, roi_y, roi_w, roi_h, start) -> PresenceResult:
+        """Fallback when YOLO is unavailable: ROI edge/sharpness heuristic (cheap, no OCR)."""
+        import cv2  # noqa: WPS433
+
+        h, w = frame.shape[:2]
+        x1 = int(w * roi_x)
+        y1 = int(h * roi_y)
+        x2 = int(w * (roi_x + roi_w))
+        y2 = int(h * (roi_y + roi_h))
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        variance = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        mean_brightness = float(gray.mean())
+        # Empty/blur ROI ~ variance < 60; plate/vehicle detail typically >> 100
+        present = variance >= 70.0 and 25.0 <= mean_brightness <= 245.0
+        conf = min(0.85, variance / 350.0) if present else 0.0
+        ms = int((time.perf_counter() - start) * 1000)
+        source = "motion" if present else "none"
+        return PresenceResult(present, round(conf, 4), None, present, ms, source)
+
+    def _presence_simulated(self, image_bytes, roi_x, roi_y, roi_w, roi_h, start) -> PresenceResult:
+        import numpy as np  # noqa: WPS433
+        import cv2  # noqa: WPS433
+
+        frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            ms = int((time.perf_counter() - start) * 1000)
+            return PresenceResult(False, 0.0, None, False, ms, "none")
+        result = self._presence_variance(frame, roi_x, roi_y, roi_w, roi_h, start)
+        result.processing_ms = int((time.perf_counter() - start) * 1000)
+        return result
 
     # ----------------------------------------------------------------- simulate
     def _detect_simulated(self, image_bytes: bytes) -> Detection | None:

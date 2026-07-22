@@ -42,7 +42,9 @@ if not exist "%VENV_PY%" goto :err_venv_missing
 echo [4/5] Khoi dong cac dich vu Docker...
 docker compose -f "%PROJECT_ROOT%\docker-compose.yml" up -d kafka kafka-ui admin-db parking-db billing-db minio
 if errorlevel 1 goto :err_compose
-docker compose -f "%PROJECT_ROOT%\docker-compose.yml" up -d admin-service parking-service billing-service edge-agent
+docker compose -f "%PROJECT_ROOT%\docker-compose.yml" up -d admin-service parking-service billing-service
+if errorlevel 1 goto :err_compose
+docker compose -f "%PROJECT_ROOT%\docker-compose.yml" up -d --build edge-agent
 if errorlevel 1 goto :err_compose
 
 echo    Cho cac dich vu san sang 25 giay...

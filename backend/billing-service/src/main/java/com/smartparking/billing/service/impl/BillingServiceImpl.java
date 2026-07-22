@@ -420,7 +420,7 @@ public class BillingServiceImpl implements BillingService {
             return webhookAck("orderCode missing");
         }
 
-        Invoice invoice = invoiceRepository.findByPayosOrderCode(orderCode).orElse(null);
+        Invoice invoice = invoiceRepository.findByPayosOrderCodeForUpdate(orderCode).orElse(null);
         if (invoice == null) {
             log.warn("PayOS webhook for unknown orderCode={}, ignored", orderCode);
             return webhookAck("invoice not found");
@@ -464,7 +464,7 @@ public class BillingServiceImpl implements BillingService {
             log.warn("MoMo IPN orderId has no invoice-id prefix: {}", orderId);
             return;
         }
-        Invoice invoice = invoiceRepository.findById(invoiceId).orElse(null);
+        Invoice invoice = invoiceRepository.findByIdForUpdate(invoiceId).orElse(null);
         if (invoice == null) {
             log.warn("MoMo IPN for unknown invoice {} (orderId={}), ignored", invoiceId, orderId);
             return;
@@ -486,18 +486,28 @@ public class BillingServiceImpl implements BillingService {
 
     /** Mark a PENDING invoice PAID via online gateway + emit payment.completed (MoMo/PayOS). */
     private void settleOnlinePaid(Invoice invoice, String providerRef, String note) {
+        Invoice locked = invoiceRepository.findByIdForUpdate(invoice.getId()).orElse(null);
+        if (locked == null) {
+            log.warn("settleOnlinePaid: invoice {} not found", invoice.getId());
+            return;
+        }
+        if (locked.getStatus() != InvoiceStatus.PENDING) {
+            log.info("settleOnlinePaid: invoice {} already {} — idempotent no-op",
+                    locked.getId(), locked.getStatus());
+            return;
+        }
         Payment payment = paymentRepository.save(Payment.builder()
-                .invoiceId(invoice.getId())
+                .invoiceId(locked.getId())
                 .method(PaymentMethod.ONLINE)
-                .amountPaid(invoice.getAmount())
+                .amountPaid(locked.getAmount())
                 .payerType(PayerType.DRIVER)
                 .providerRef(providerRef)
                 .note(note)
                 .build());
-        invoice.setStatus(InvoiceStatus.PAID);
-        invoiceRepository.save(invoice);
-        recordOutbox(paymentCompletedTopic, "Payment", invoice.getId(),
-                buildPaymentCompleted(invoice, payment));
+        locked.setStatus(InvoiceStatus.PAID);
+        invoiceRepository.save(locked);
+        recordOutbox(paymentCompletedTopic, "Payment", locked.getId(),
+                buildPaymentCompleted(locked, payment));
     }
 
     /** @deprecated use {@link #settleOnlinePaid} — kept as alias for MoMo call sites in this class. */

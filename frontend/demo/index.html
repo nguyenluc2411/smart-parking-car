@@ -52,6 +52,14 @@
   .amount { font-size:26px; font-weight:800; margin:6px 0; }
   .pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; }
   .pill.pending { background:#3a2f00; color:#fbbf24; } .pill.paid { background:#06341c; color:#34d399; }
+  #paysuccess { display:none; margin-top:16px; padding:28px 20px; border-radius:16px;
+                background:linear-gradient(135deg,#064e3b 0%,#065f46 50%,#047857 100%);
+                border:2px solid #34d399; text-align:center; animation:payPop .45s ease; }
+  #paysuccess .pay-icon { font-size:56px; line-height:1; margin-bottom:10px; }
+  #paysuccess .pay-title { font-size:28px; font-weight:800; color:#ecfdf5; letter-spacing:.3px; }
+  #paysuccess .pay-sub { margin-top:10px; font-size:15px; color:#a7f3d0; font-weight:500; }
+  @keyframes payPop { from { transform:scale(.92); opacity:0; } to { transform:scale(1); opacity:1; } }
+  #qrbox.paid .pay-grid, #qrbox.paid #paywait, #qrbox.paid .pill { display:none !important; }
   a.link { color:#7dd3fc; font-size:12px; }
   .statusbar { display:flex; gap:22px; align-items:center; flex-wrap:wrap;
                padding:10px 22px; border-bottom:1px solid var(--line); background:#141931; }
@@ -59,12 +67,30 @@
   .statusbar .stat b { font-size:20px; font-weight:800; }
   .statusbar .stat.ok b { color:var(--ok); }
   .statusbar .lbl { color:var(--mut); font-size:12px; }
+  .auto-bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; padding:10px 12px;
+              background:#0e1330; border:1px solid var(--line); border-radius:12px; position:relative; z-index:5; }
+  .auto-bar button { touch-action:manipulation; -webkit-tap-highlight-color:transparent; min-height:44px; }
+  .auto-badge { font-size:13px; font-weight:700; padding:6px 12px; border-radius:999px; }
+  .auto-badge.on { background:#064e3b; color:#6ee7b7; }
+  .auto-badge.off { background:#3f3f46; color:#a1a1aa; }
+  .auto-badge.wait { background:#3a2f00; color:#fbbf24; }
+  .dir-toggle button { opacity:.55; }
+  .dir-toggle button.active { opacity:1; box-shadow:0 0 0 2px #fff; }
+  .manual-row { margin-top:8px; opacity:.85; }
+  .manual-row summary { cursor:pointer; color:var(--mut); font-size:13px; }
+  .manual-bar { margin-top:8px; }
+  .manual-bar .row { margin-top:0; }
+  body.auto-on .manual-bar { display:none; }
+  body.auto-on .auto-dir { display:inline-flex; }
+  body.auto-off .manual-bar { display:block; }
+  body.auto-off .auto-dir { display:none; }
+  body.auto-off .manual-row { display:none; }
 </style>
 </head>
-<body>
+<body class="auto-on">
 <header>
   <h1>Smart Parking — Demo ALPR</h1>
-  <span class="sub">Camera → nhận diện biển → barie → thanh toán MoMo hoặc PayOS</span>
+  <span class="sub">Camera tự động → nhận diện biển → barie → thanh toán MoMo hoặc PayOS</span>
 </header>
 
 <div class="statusbar" id="statusbar">
@@ -77,23 +103,33 @@
 <div class="wrap">
   <!-- LEFT: camera + scan -->
   <div class="card">
-    <h2>1 · Camera cổng — đưa BIỂN SỐ vào khung, càng gần càng chính xác</h2>
+    <h2>1 · Camera cổng — xe mới vào khung → tự quét biển 1 lần</h2>
+    <div class="auto-bar">
+      <span class="auto-badge on" id="autoBadge">TỰ ĐỘNG</span>
+      <span class="dir-toggle auto-dir row" style="margin:0">
+        <button class="in active" id="btnDirIn" type="button">Cổng VÀO</button>
+        <button class="out" id="btnDirOut" type="button">Cổng RA</button>
+      </span>
+      <button class="ghost" id="btnAutoToggle" type="button">Tắt tự động</button>
+      <button class="ghost" id="btnFlip" type="button">Đổi camera</button>
+    </div>
+    <div class="manual-bar" id="manualBar">
+      <div class="row">
+        <button class="in" id="btnIn" type="button">Quét XE VÀO</button>
+        <button class="out" id="btnOut" type="button">Quét XE RA</button>
+        <label class="ghost" style="padding:11px 16px;border-radius:10px;">Ảnh
+          <input id="file" type="file" accept="image/*" style="display:none">
+        </label>
+        <label class="ghost" style="padding:11px 16px;border-radius:10px;">Video
+          <input id="video" type="file" accept="video/*" style="display:none">
+        </label>
+      </div>
+    </div>
     <div class="camwrap">
       <video id="cam" autoplay playsinline muted></video>
       <div class="guide"><span>Đưa biển số vào khung này (cận cảnh)</span></div>
     </div>
     <canvas id="shot" style="display:none"></canvas>
-    <div class="row">
-      <button class="in"  id="btnIn">Quét XE VÀO</button>
-      <button class="out" id="btnOut">Quét XE RA</button>
-      <button class="ghost" id="btnFlip">Đổi camera</button>
-      <label class="ghost" style="padding:11px 16px;border-radius:10px;">Ảnh
-        <input id="file" type="file" accept="image/*" style="display:none">
-      </label>
-      <label class="ghost" style="padding:11px 16px;border-radius:10px;">Video
-        <input id="video" type="file" accept="video/*" style="display:none">
-      </label>
-    </div>
     <div class="msg" id="msg"></div>
   </div>
 
@@ -140,10 +176,13 @@
           <div style="margin-top:8px"><a class="link" id="paylink-payos" target="_blank">Mở trang thanh toán PayOS</a></div>
         </div>
       </div>
-      <div class="row" style="justify-content:center;margin-top:12px">
-        <button class="momo" id="btnCheck">Kiểm tra đã thanh toán</button>
-      </div>
       <div style="margin-top:8px"><span class="pill pending" id="payst">PENDING</span></div>
+      <div class="meta" id="paywait" style="justify-content:center;margin-top:6px;display:none">Đang chờ thanh toán ...</div>
+      <div id="paysuccess">
+        <div class="pay-icon">✓</div>
+        <div class="pay-title">Thanh toán thành công!</div>
+        <div class="pay-sub" id="paysuccess-sub">Barie sẽ mở cho xe ra.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -152,42 +191,293 @@
 const $ = s => document.querySelector(s);
 const cam = $('#cam'), shot = $('#shot');
 let lastPlate = null, lastSession = null, lastMomoOrder = null, lastPayosOrderCode = null;
+let busy = false, prevUrl = null;
+let facing = 'environment', stream = null, cameraReady = false;
 
-// --- webcam (ưu tiên camera SAU trên điện thoại; có nút đổi trước/sau) ---
-let facing = 'environment', stream = null;
+const PAY_POLL_MS = 3000;
+const PAY_TIMEOUT_MS = 15 * 60 * 1000;
+let payPollTimer = null, payPollStart = 0;
+
+// --- Tự động: vehicle-first occupancy (1 lần quét / 1 lượt xe, không quét lại) ---
+const ROI = { x: 0.08, y: 0.38, w: 0.84, h: 0.24 };
+const PRESENCE_POLL_MS = 1200;      // chỉ probe YOLO xe (~1s), không burst OCR liên tục
+const LEAVE_STREAK_NEED = 4;       // 4 lần không thấy xe → coi là xe đã rời, chờ xe mới
+const AUTO_COOLDOWN_MS = 8000;    // backup sau publish thành công (Kafka dedup)
+let autoEnabled = true;
+let autoDirection = 'IN';
+let autoCooldownUntil = 0;
+let autoTimer = null;
+let presenceChecking = false;
+let lastPresenceHint = '';
+let zoneState = 'EMPTY';           // EMPTY | OCCUPIED
+let leaveStreak = 0;
+
+function setMsg(t, cls='') { const m=$('#msg'); m.textContent=t; m.className='msg '+cls; }
+
+function setBusy(b) {
+  busy = b;
+  // Chỉ khóa quét thủ công khi đang quét — không ảnh hưởng nút tự động / đổi camera
+  ['#btnIn','#btnOut','#file','#video'].forEach(s => { const el=$(s); if(el) el.disabled=b; });
+}
+
+function applyAutoMode() {
+  document.body.classList.toggle('auto-on', autoEnabled);
+  document.body.classList.toggle('auto-off', !autoEnabled);
+  zoneState = 'EMPTY';
+  leaveStreak = 0;
+  if (autoEnabled) {
+    startAutoWatch();
+    if (cameraReady) setMsg('Tự động BẬT — chờ phương tiện mới vào khung, quét biển 1 lần.', 'ok');
+  } else {
+    stopAutoWatch();
+    if (cameraReady) setMsg('Tự động TẮT — bấm Quét XE VÀO / RA để quét thủ công.', 'ok');
+  }
+  updateAutoBadge();
+}
+
+function updateAutoBadge() {
+  const el = $('#autoBadge');
+  if (!el) return;
+  if (!autoEnabled) {
+    el.textContent = 'TẮT';
+    el.className = 'auto-badge off';
+    $('#btnAutoToggle').textContent = 'Bật tự động';
+    return;
+  }
+  const rem = autoCooldownUntil - Date.now();
+  if (busy) {
+    el.textContent = 'ĐANG QUÉT BIỂN...';
+    el.className = 'auto-badge wait';
+  } else if (zoneState === 'OCCUPIED') {
+    el.textContent = 'XE TRONG VÙNG · đã quét';
+    el.className = 'auto-badge wait';
+  } else if (rem > 0) {
+    el.textContent = 'CHỜ ' + Math.ceil(rem / 1000) + 's';
+    el.className = 'auto-badge wait';
+  } else if (!cameraReady) {
+    el.textContent = 'CHỜ CAMERA...';
+    el.className = 'auto-badge wait';
+  } else {
+    const hint = lastPresenceHint ? (' · ' + lastPresenceHint) : '';
+    el.textContent = 'CHỜ XE MỚI · ' + (autoDirection === 'IN' ? 'VÀO' : 'RA') + hint;
+    el.className = 'auto-badge on';
+  }
+  $('#btnAutoToggle').textContent = 'Tắt tự động';
+}
+
+function setAutoDirection(dir) {
+  autoDirection = dir;
+  $('#btnDirIn').classList.toggle('active', dir === 'IN');
+  $('#btnDirOut').classList.toggle('active', dir === 'OUT');
+  updateAutoBadge();
+}
+
+function canAutoWatch() {
+  return autoEnabled && cameraReady && !busy && !presenceChecking;
+}
+
+function markAutoCooldown(published) {
+  if (published && autoEnabled) {
+    autoCooldownUntil = Date.now() + AUTO_COOLDOWN_MS;
+  }
+  updateAutoBadge();
+}
+
+function resetZoneOccupancy() {
+  zoneState = 'EMPTY';
+  leaveStreak = 0;
+  lastPresenceHint = '';
+}
+
+/** Cắt đúng vùng khung hướng dẫn trên video (cận cảnh biển). */
+function captureRoiBlob() {
+  return new Promise(res => {
+    if (!cameraReady || !cam.videoWidth) return res(null);
+    const vw = cam.videoWidth, vh = cam.videoHeight;
+    const rx = Math.round(vw * ROI.x);
+    const ry = Math.round(vh * ROI.y);
+    const rw = Math.round(vw * ROI.w);
+    const rh = Math.round(vh * ROI.h);
+    shot.width = rw; shot.height = rh;
+    shot.getContext('2d').drawImage(cam, rx, ry, rw, rh, 0, 0, rw, rh);
+    shot.toBlob(b => res(b), 'image/jpeg', 0.92);
+  });
+}
+
+/** Gửi khung hình đầy đủ + tọa độ ROI (YOLO cần ngữ cảnh, không chỉ crop). */
+async function checkPresenceInZone() {
+  const blob = await frameBlob();
+  if (!blob) return { present: false };
+  const fd = new FormData();
+  fd.append('image', blob, 'frame.jpg');
+  fd.append('roi_x', ROI.x);
+  fd.append('roi_y', ROI.y);
+  fd.append('roi_w', ROI.w);
+  fd.append('roi_h', ROI.h);
+  fd.append('min_confidence', '0.25');
+  fd.append('vehicle_only', 'true');
+  try {
+    const r = await fetch('/api/detect/presence', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      return { present: false, error: data.detail || data.error || r.status };
+    }
+    return data;
+  } catch (e) {
+    return { present: false, error: String(e) };
+  }
+}
+
+const PRESENCE_LABEL = { vehicle: 'phương tiện', plate: 'biển số' };
+
+/** Cập nhật occupancy: quét OCR chỉ khi xe MỚI vào vùng (action=scan). */
+function updateZoneFromPresence(d) {
+  const src = d.source || 'none';
+  const isVehicle = d.present && src === 'vehicle';
+
+  if (zoneState === 'EMPTY') {
+    leaveStreak = 0;
+    if (isVehicle) {
+      zoneState = 'OCCUPIED';
+      lastPresenceHint = 'xe mới ' + Math.round((d.confidence || 0) * 100) + '%';
+      return 'scan';
+    }
+    lastPresenceHint = d.processingMs ? ('chưa có xe · ' + d.processingMs + 'ms') : 'chưa có xe';
+    return 'idle';
+  }
+
+  // OCCUPIED — giữ trạng thái, không quét lại cùng xe
+  if (isVehicle || (d.present && src === 'plate')) {
+    leaveStreak = 0;
+    lastPresenceHint = 'xe trong vùng · đã quét';
+    return 'hold';
+  }
+
+  leaveStreak++;
+  if (leaveStreak >= LEAVE_STREAK_NEED) {
+    zoneState = 'EMPTY';
+    leaveStreak = 0;
+    lastPresenceHint = 'sẵn sàng xe tiếp theo';
+    return 'idle';
+  }
+  lastPresenceHint = 'xe rời (' + leaveStreak + '/' + LEAVE_STREAK_NEED + ')';
+  return 'hold';
+}
+
+async function presenceTick() {
+  if (!autoEnabled) return;
+  if (!canAutoWatch()) {
+    updateAutoBadge();
+    schedulePresenceTick();
+    return;
+  }
+  presenceChecking = true;
+  updateAutoBadge();
+  try {
+    const d = await checkPresenceInZone();
+    if (d.error) {
+      lastPresenceHint = 'lỗi API';
+      if (!busy) setMsg('Không gọi được presence: ' + d.error, 'bad');
+      return;
+    }
+    const action = updateZoneFromPresence(d);
+    updateAutoBadge();
+    if (action === 'scan') {
+      setMsg('Phát hiện phương tiện mới — đang chụp và quét biển số...', 'ok');
+      await scan(autoDirection, null, true);
+    }
+  } finally {
+    presenceChecking = false;
+    updateAutoBadge();
+    if (autoEnabled && !busy) schedulePresenceTick();
+  }
+}
+
+function schedulePresenceTick() {
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  if (!autoEnabled) return;
+  autoTimer = setTimeout(() => { presenceTick(); }, PRESENCE_POLL_MS);
+}
+
+function startAutoWatch() {
+  if (!autoEnabled) return;
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  lastPresenceHint = '';
+  if (!window._badgeTimer) window._badgeTimer = setInterval(updateAutoBadge, 500);
+  schedulePresenceTick();
+  updateAutoBadge();
+}
+
+function stopAutoWatch() {
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  presenceChecking = false;
+  resetZoneOccupancy();
+  updateAutoBadge();
+}
+
 async function startCamera(f) {
+  cameraReady = false;
+  updateAutoBadge();
   try {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: f }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-    cam.srcObject = stream; facing = f;
+    cam.srcObject = stream;
+    facing = f;
+    await new Promise((resolve, reject) => {
+      const done = () => {
+        if (cam.videoWidth > 0) { cameraReady = true; updateAutoBadge(); resolve(); }
+      };
+      if (cam.readyState >= 2 && cam.videoWidth > 0) return done();
+      cam.onloadedmetadata = done;
+      setTimeout(() => {
+        if (cam.videoWidth > 0) { cameraReady = true; updateAutoBadge(); resolve(); }
+        else reject(new Error('Camera chưa sẵn sàng'));
+      }, 3000);
+    });
+    if (autoEnabled) {
+      setMsg('Camera sẵn sàng — chờ phương tiện mới vào khung (quét biển 1 lần / xe).', 'ok');
+    } else {
+      setMsg('Camera sẵn sàng — bấm Quét XE VÀO / RA để quét thủ công.', 'ok');
+    }
   } catch (e) {
     setMsg('Không mở được camera ('+f+') — bấm Đổi camera hoặc dùng Ảnh.', 'bad');
   }
 }
-startCamera(facing);
-
-function setMsg(t, cls='') { const m=$('#msg'); m.textContent=t; m.className='msg '+cls; }
 
 function frameBlob() {
   return new Promise(res => {
-    const w = cam.videoWidth||1280, h = cam.videoHeight||960;
-    shot.width=w; shot.height=h; shot.getContext('2d').drawImage(cam,0,0,w,h);
+    if (!cameraReady || !cam.videoWidth) return res(null);
+    const w = cam.videoWidth, h = cam.videoHeight;
+    shot.width=w; shot.height=h;
+    shot.getContext('2d').drawImage(cam,0,0,w,h);
     shot.toBlob(b=>res(b), 'image/jpeg', 0.92);
   });
 }
 
-let busy = false, prevUrl = null;
-function setBusy(b) { busy = b; ['#btnIn','#btnOut','#btnFlip','#file','#video'].forEach(s => { const el=$(s); if(el) el.disabled=b; }); }
-
 // Xóa kết quả của lần quét TRƯỚC để không nhầm với lần hiện tại (lỗi #1).
+function stopPaymentPoll() {
+  if (payPollTimer) { clearInterval(payPollTimer); payPollTimer = null; }
+  $('#paywait').style.display = 'none';
+}
+
+function hidePaymentSuccess() {
+  $('#paysuccess').style.display = 'none';
+  $('#qrbox').classList.remove('paid');
+}
+
 function resetResult() {
+  stopPaymentPoll();
+  hidePaymentSuccess();
   $('#plate').textContent = '—';
   $('#conf').textContent = 'confidence: —';
   $('#lat').textContent = '—';
   $('#btnPay').style.display = 'none';
   $('#qrbox').style.display = 'none';
   lastPlate = null;
+  lastSession = null;
+  lastMomoOrder = null;
+  lastPayosOrderCode = null;
 }
 
 // Hiện ảnh ĐANG quét + chiều, để biết kết quả thuộc ảnh nào (lỗi #2).
@@ -203,20 +493,39 @@ function showPreview(blob, direction) {
 // Chụp N khung của CÙNG một xe, cách nhau gapMs — để burst bỏ phiếu (loại khung mờ/lỗi).
 async function captureFrames(n, gapMs) {
   const frames = [];
-  for (let i=0;i<n;i++) { frames.push(await frameBlob()); if (i<n-1) await new Promise(r=>setTimeout(r, gapMs)); }
+  for (let i=0;i<n;i++) {
+    const b = await frameBlob();
+    if (b) frames.push(b);
+    if (i<n-1) await new Promise(r=>setTimeout(r, gapMs));
+  }
   return frames;
 }
 
-async function scan(direction, providedFrames) {
-  if (busy) return;                       // chặn quét chồng khi lần trước chưa xong
+async function scan(direction, providedFrames, fromAuto) {
+  if (busy) return;
+  if (fromAuto && !autoEnabled) return;
   setBusy(true);
-  resetResult();
+  updateAutoBadge();
+  if (!fromAuto) resetResult();
   let frames;
   if (providedFrames) {
-    frames = providedFrames;              // ảnh upload: 1 khung
+    frames = providedFrames;
   } else {
-    setMsg('Đang chụp 5 khung của xe... giữ yên và đưa biển vào khung.');
-    frames = await captureFrames(5, 200); // camera: 5 khung trong ~1s
+    if (!cameraReady) {
+      setBusy(false);
+      updateAutoBadge();
+      if (!fromAuto) setMsg('Camera chưa sẵn sàng — đợi vài giây hoặc bấm Đổi camera.', 'bad');
+      return;
+    }
+    if (!fromAuto) setMsg('Đang chụp 5 khung của xe... giữ yên và đưa biển vào khung.');
+    else setMsg('Tự động quét ' + (direction==='IN'?'VÀO':'RA') + '...', '');
+    frames = await captureFrames(5, 200);
+    if (!frames.length) {
+      setBusy(false);
+      updateAutoBadge();
+      if (!fromAuto) setMsg('Không chụp được khung hình từ camera.', 'bad');
+      return;
+    }
   }
   showPreview(frames[frames.length-1], direction);
   const gate = direction==='IN' ? 'GATE_ENTRY_01' : 'GATE_EXIT_01';
@@ -228,6 +537,7 @@ async function scan(direction, providedFrames) {
     const r = await fetch('/api/detect_burst', { method:'POST', body:fd });
     const data = await r.json().catch(()=>({}));
     if (r.status === 200 && data.published) {
+      if (fromAuto) markAutoCooldown(true);
       lastPlate = data.plateNumber;
       $('#plate').textContent = data.plateNumber;
       $('#conf').textContent = 'conf ' + (data.confidence*100).toFixed(1) + '% · '
@@ -235,12 +545,15 @@ async function scan(direction, providedFrames) {
       $('#lat').textContent = (data.processingMs||0) + ' ms';
       $('#scanstate').textContent = 'Đọc được ('+data.votes+' phiếu)';
       setMsg('Đã đọc '+data.plateNumber+' — đang chờ hệ thống quyết định...');
-      // Hỏi KẾT QUẢ THẬT (parking/billing) thay vì đoán "barie đang mở".
       await resolveOutcome(direction, data.plateNumber);
     } else if (r.status === 202 || (data && data.accepted === false)) {
-      $('#scanstate').textContent = 'Chưa chắc chắn';
-      const guess = data.plateNumber ? (' — đoán "'+data.plateNumber+'" nhưng chỉ '+(data.votes||0)+' khung trùng') : '';
-      setMsg('Các khung chưa đồng thuận'+guess+'. Đưa biển GẦN và THẲNG, đủ sáng, giữ yên rồi quét lại.', 'bad');
+      if (!fromAuto) {
+        $('#scanstate').textContent = 'Chưa chắc chắn';
+        const guess = data.plateNumber ? (' — đoán "'+data.plateNumber+'" nhưng chỉ '+(data.votes||0)+' khung trùng') : '';
+        setMsg('Các khung chưa đồng thuận'+guess+'. Đưa biển GẦN và THẲNG, đủ sáng, giữ yên rồi quét lại.', 'bad');
+      } else if (data.plateNumber) {
+        setMsg('Tự động: đoán '+data.plateNumber+' ('+(data.votes||0)+' phiếu) — đưa biển gần hơn...', '');
+      }
     } else {
       $('#scanstate').textContent = 'Lỗi '+r.status;
       setMsg('Lỗi '+r.status+': '+(data.detail||data.error||JSON.stringify(data)), 'bad');
@@ -250,13 +563,27 @@ async function scan(direction, providedFrames) {
     setMsg('Lỗi kết nối edge-agent: '+e, 'bad');
   } finally {
     setBusy(false);
+    updateAutoBadge();
   }
 }
 
-$('#btnFlip').onclick = ()=> { if(!busy) startCamera(facing === 'environment' ? 'user' : 'environment'); };
+$('#btnFlip').onclick = ()=> startCamera(facing === 'environment' ? 'user' : 'environment');
 $('#btnPay').onclick = ()=> { if (lastPlate) loadPayments(lastPlate); };
-$('#btnIn').onclick  = ()=> scan('IN',  null);   // null = chụp 5 khung từ camera
+$('#btnIn').onclick  = ()=> scan('IN',  null);
 $('#btnOut').onclick = ()=> scan('OUT', null);
+
+$('#btnDirIn').onclick = () => setAutoDirection('IN');
+$('#btnDirOut').onclick = () => setAutoDirection('OUT');
+$('#btnAutoToggle').onclick = () => {
+  autoEnabled = !autoEnabled;
+  applyAutoMode();
+};
+
+// Khởi động: camera trước, bật/tắt theo dõi YOLO theo chế độ
+(async function initDemo() {
+  applyAutoMode();
+  await startCamera(facing);
+})();
 // Ảnh từ file: hỏi chiều TRƯỚC khi quét; reset value để chọn lại đúng file vẫn chạy.
 $('#file').addEventListener('click', ()=>{ window.fileDir = confirm('OK = Xe VÀO, Cancel = Xe RA') ? 'IN':'OUT'; });
 $('#file').onchange  = e => { const f=e.target.files[0]; if(f) scan(window.fileDir||'IN', [f]); e.target.value=''; };
@@ -369,33 +696,66 @@ async function loadPayments(plate, tries) {
   }
 
   $('#payst').className = 'pill pending'; $('#payst').textContent = 'PENDING';
+  hidePaymentSuccess();
   $('#qrbox').style.display = 'block';
   $('#qrbox').scrollIntoView({ behavior:'smooth', block:'center' });
-  setMsg('Chọn MoMo hoặc PayOS, quét QR để thanh toán. Xong bấm "Kiểm tra đã thanh toán".', 'ok');
+  setMsg('Quét QR MoMo hoặc PayOS — hệ thống tự nhận khi thanh toán xong.', 'ok');
+  startPaymentPoll();
 }
 
-$('#btnCheck').onclick = async ()=> {
+function onPaymentSuccess(msg) {
+  stopPaymentPoll();
+  $('#qrbox').classList.add('paid');
+  $('#paysuccess-sub').textContent = msg || 'Barie sẽ mở cho xe ra.';
+  $('#paysuccess').style.display = 'block';
+  $('#paysuccess').scrollIntoView({ behavior:'smooth', block:'center' });
+  setMsg('✅ Thanh toán thành công! Barie sẽ mở khi xe ra.', 'ok');
+}
+
+function onPaymentTimeout() {
+  stopPaymentPoll();
+  $('#payst').className = 'pill pending';
+  $('#payst').textContent = 'HẾT HẠN';
+  setMsg('Hết thời gian chờ thanh toán (15 phút). Tạo lại mã QR nếu cần.', 'bad');
+}
+
+async function pollPaymentOnce() {
   if (!lastSession) return;
-  $('#btnCheck').disabled=true;
+  if (Date.now() - payPollStart > PAY_TIMEOUT_MS) return onPaymentTimeout();
+
   try {
-    let paid = false, msg = '';
-    if (lastMomoOrder) {
-      const r = await fetch('/api/momo/status?session_id='+lastSession+'&order_id='+encodeURIComponent(lastMomoOrder));
+    const ir = await fetch('/api/invoice/status?session_id=' + encodeURIComponent(lastSession));
+    const inv = await ir.json();
+    if (inv.status === 'PAID') return onPaymentSuccess('Đã thanh toán — barie sẽ mở cho xe ra.');
+  } catch (e) { /* webhook may not have fired yet — fall through to gateway poll */ }
+
+  let paid = false, msg = '';
+  if (lastMomoOrder) {
+    try {
+      const r = await fetch('/api/momo/status?session_id=' + lastSession + '&order_id=' + encodeURIComponent(lastMomoOrder));
       const d = await r.json();
       if (d.status === 'PAID') { paid = true; msg = d.message || 'MoMo PAID'; }
-      else if (!msg) msg = d.message || 'MoMo chưa thanh toán';
-    }
-    if (!paid && lastPayosOrderCode) {
-      const r = await fetch('/api/payos/status?session_id='+lastSession+'&order_code='+encodeURIComponent(lastPayosOrderCode));
+    } catch (e) { /* retry next tick */ }
+  }
+  if (!paid && lastPayosOrderCode) {
+    try {
+      const r = await fetch('/api/payos/status?session_id=' + lastSession + '&order_code=' + encodeURIComponent(lastPayosOrderCode));
       const d = await r.json();
       if (d.status === 'PAID') { paid = true; msg = d.message || 'PayOS PAID'; }
-      else if (!msg) msg = d.message || 'PayOS chưa thanh toán';
-    }
-    $('#payst').className='pill '+(paid?'paid':'pending');
-    $('#payst').textContent = paid ? 'PAID' : 'PENDING';
-    setMsg(paid ? 'Đã thanh toán. Barie sẽ mở khi xe ra.' : msg, paid?'ok':'');
-  } finally { $('#btnCheck').disabled=false; }
-};
+    } catch (e) { /* retry next tick */ }
+  }
+  if (paid) return onPaymentSuccess(msg);
+  $('#payst').className = 'pill pending';
+  $('#payst').textContent = 'PENDING';
+}
+
+function startPaymentPoll() {
+  stopPaymentPoll();
+  payPollStart = Date.now();
+  $('#paywait').style.display = 'block';
+  pollPaymentOnce();
+  payPollTimer = setInterval(pollPaymentOnce, PAY_POLL_MS);
+}
 
 // --- KẾT QUẢ THẬT sau nhận diện (admit/deny/whitelist) từ parking + billing ---
 async function resolveOutcome(direction, plate) {

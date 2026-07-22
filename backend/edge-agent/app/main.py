@@ -19,6 +19,7 @@ from app.routers import health as health_router
 from app.routers import simulate as simulate_router
 from app.security import require_api_key
 from app.services.alpr import AlprService
+from app.services.auto_capture import AutoCaptureService
 from app.services.barrier import BarrierSimulator
 from app.services.storage import FrameStorage
 
@@ -72,6 +73,10 @@ async def lifespan(app: FastAPI):
     app.state.consumer = consumer
     app.state.kafka_connected = False
 
+    auto_capture = AutoCaptureService(
+        settings, app.state.runtime, app.state.alpr, app.state.storage, producer)
+    app.state.auto_capture = auto_capture
+
     try:
         await producer.start()
         await gate_state_producer.start()
@@ -79,12 +84,14 @@ async def lifespan(app: FastAPI):
         # Restart => relay de-energized => all gates CLOSED; sync parking-service (BR-006-2).
         await barrier.announce_initial(settings.gate_mapping.keys())
         app.state.kafka_connected = True
+        await auto_capture.start()
     except Exception:  # readiness is reported via /health rather than crashing the dev tool
         logger.exception("Kafka unavailable at startup; /detect & /simulate will fail until it recovers")
 
     try:
         yield
     finally:
+        await auto_capture.stop()
         await consumer.stop()
         await producer.stop()
         await gate_state_producer.stop()

@@ -41,6 +41,17 @@ class DetectFailedResponse(BaseModel):
     reason: str = "LOW_CONFIDENCE"
 
 
+class PresenceResponse(BaseModel):
+    """YOLO / vehicle probe in the trigger ROI — no OCR, no Kafka publish."""
+    present: bool
+    confidence: float = 0.0
+    inRoi: bool = False
+    boundingBox: Optional[BoundingBox] = None
+    processingMs: int = 0
+    source: str = ""   # plate | vehicle | motion | none
+    message: str = ""
+
+
 class PlateVote(BaseModel):
     plateNumber: str
     votes: int
@@ -48,23 +59,17 @@ class PlateVote(BaseModel):
 
 
 class BurstDetectResponse(BaseModel):
-    """Result of a multi-frame burst: frames vote, one consensus plate is published.
-
-    ``accepted`` (and ``published``) is True only when a plate cleared the vote/confidence
-    thresholds — that is the single ``plate.detected`` that opened the gate. When no plate
-    reached consensus the top-ranked candidate is still reported (accepted=False, nothing
-    published, no image stored) so a near-miss is visible for the KPI report.
-    """
+    """Result of a multi-frame burst: frames vote, one consensus plate is published."""
     accepted: bool
     published: bool
     plateNumber: Optional[str] = None
-    confidence: float = 0.0          # mean OCR confidence of the winning/top-ranked plate
-    votes: int = 0                   # frames that read the winning plate
-    framesRead: int = 0              # frames that produced ANY readable plate
+    confidence: float = 0.0
+    votes: int = 0
+    framesRead: int = 0
     framesSubmitted: int = 0
     processingMs: int = 0
     imageRef: Optional[str] = None
-    candidates: list[PlateVote] = Field(default_factory=list)  # tally, best-first
+    candidates: list[PlateVote] = Field(default_factory=list)
 
 
 class ConfigResponse(BaseModel):

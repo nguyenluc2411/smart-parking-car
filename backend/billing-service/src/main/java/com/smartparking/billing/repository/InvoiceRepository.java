@@ -9,9 +9,11 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import jakarta.persistence.LockModeType;
 
 @Repository
 public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
@@ -25,6 +27,15 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
     boolean existsByPayosOrderCode(Long payosOrderCode);
 
     Optional<Invoice> findByPayosOrderCode(Long payosOrderCode);
+
+    /** Pessimistic lock for idempotent online settlement (webhook vs poll race). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM Invoice i WHERE i.id = :id")
+    Optional<Invoice> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM Invoice i WHERE i.payosOrderCode = :orderCode")
+    Optional<Invoice> findByPayosOrderCodeForUpdate(@Param("orderCode") Long orderCode);
 
     /** Invoices whose exit falls in [from, to) — for daily/monthly revenue reports. */
     @Query("SELECT i FROM Invoice i WHERE i.exitTime >= :from AND i.exitTime < :to")
