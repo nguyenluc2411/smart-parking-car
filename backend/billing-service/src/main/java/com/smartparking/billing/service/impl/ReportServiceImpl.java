@@ -2,10 +2,14 @@ package com.smartparking.billing.service.impl;
 
 import com.smartparking.billing.dto.response.DailyReportDTO;
 import com.smartparking.billing.dto.response.DailyReportDTO.HourRevenue;
+import com.smartparking.billing.dto.response.DailyReportDTO.MethodRevenue;
 import com.smartparking.billing.dto.response.MonthlyReportDTO;
 import com.smartparking.billing.dto.response.MonthlyReportDTO.DayRevenue;
 import com.smartparking.billing.entity.Invoice;
+import com.smartparking.billing.entity.Payment;
+import com.smartparking.billing.entity.enums.PaymentMethod;
 import com.smartparking.billing.repository.InvoiceRepository;
+import com.smartparking.billing.repository.PaymentRepository;
 import com.smartparking.billing.service.ReportService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -13,9 +17,11 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -30,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReportServiceImpl implements ReportService {
 
     private final InvoiceRepository invoiceRepository;
+    private final PaymentRepository paymentRepository;
 
     @Value("${app.billing.zone-id}")
     private String zoneId;
@@ -58,7 +65,7 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         return new DailyReportDTO(date.toString(), totalSessions, totalRevenue, peakSessions,
-                avgDuration, revenueByHour);
+                avgDuration, revenueByHour, revenueByMethod(invoices));
     }
 
     @Override
@@ -91,11 +98,30 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         return new MonthlyReportDTO(month.toString(), invoices.size(), totalRevenue, prevRevenue,
-                growthRate, avgDaily, revenueByDay);
+                growthRate, avgDaily, revenueByDay, revenueByMethod(invoices));
     }
 
     private static BigDecimal sum(List<Invoice> invoices) {
         return invoices.stream().map(Invoice::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Revenue collected per {@link PaymentMethod} (CASH vs QR_CODE/ONLINE = "hệ thống") for the
+     * given invoices. WAIVED invoices have no Payment row and are correctly excluded — they aren't
+     * revenue collected via any method.
+     */
+    private List<MethodRevenue> revenueByMethod(List<Invoice> invoices) {
+        List<UUID> invoiceIds = invoices.stream().map(Invoice::getId).toList();
+        if (invoiceIds.isEmpty()) {
+            return List.of();
+        }
+        Map<PaymentMethod, HourAgg> byMethod = new EnumMap<>(PaymentMethod.class);
+        for (Payment payment : paymentRepository.findByInvoiceIdIn(invoiceIds)) {
+            byMethod.computeIfAbsent(payment.getMethod(), m -> new HourAgg()).add(payment.getAmountPaid());
+        }
+        return byMethod.entrySet().stream()
+                .map(e -> new MethodRevenue(e.getKey(), e.getValue().revenue, e.getValue().count))
+                .toList();
     }
 
     private static final class HourAgg {

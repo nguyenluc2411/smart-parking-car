@@ -1,5 +1,6 @@
 package com.smartparking.billing.dto.response;
 
+import com.smartparking.billing.dto.response.DailyReportDTO.MethodRevenue;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -11,7 +12,8 @@ public record MonthlyReportDTO(
         BigDecimal prevMonthRevenue,
         double growthRate,
         BigDecimal avgDailyRevenue,
-        List<DayRevenue> revenueByDay
+        List<DayRevenue> revenueByDay,
+        List<MethodRevenue> revenueByMethod
 ) {
     public record DayRevenue(String date, BigDecimal revenue) {
     }

@@ -500,6 +500,10 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
 ```
 
 ### GET /api/v1/billing/sessions/{sessionId}
+**Mô tả:** Chi tiết 1 hóa đơn — dùng cho panel xem & thu tiền. Khác `GET /billing/invoices` (danh
+sách): endpoint này trả thêm `peakMultiplier`/`overnightFlat`/`minCharge` — đúng bảng giá (`rates`
+row qua `invoice.rate_id`) đã áp dụng cho hóa đơn này tại thời điểm tính phí, không phải bảng giá
+hiện hành (BR-004-5 traceability — vẫn đúng dù giá đã đổi sau đó).  
 **Response 200:**
 ```json
 {
@@ -515,7 +519,10 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
     "peakApplied": true,
     "overnightApplied": false,
     "amount": 50000,
-    "status": "PENDING"
+    "status": "PENDING",
+    "peakMultiplier": 1.5,
+    "overnightFlat": 30000,
+    "minCharge": 5000
   }
 }
 ```
@@ -658,10 +665,19 @@ version (closes its `effectiveTo`) and carries the schedules over.
     "totalRevenue": 4350000,
     "peakSessions": 23,
     "avgDurationMinutes": 142,
-    "revenueByHour": [ { "hour": 8, "revenue": 450000, "sessions": 12 } ]
+    "revenueByHour": [ { "hour": 8, "revenue": 450000, "sessions": 12 } ],
+    "revenueByMethod": [
+      { "method": "CASH", "revenue": 1200000, "count": 30 },
+      { "method": "QR_CODE", "revenue": 650000, "count": 10 },
+      { "method": "ONLINE", "revenue": 2500000, "count": 47 }
+    ]
   }
 }
 ```
+`revenueByMethod` (BR-005-8): doanh thu gộp theo `payments.method` cho các invoice trong kỳ —
+`CASH` = tiền mặt tại quầy; `QR_CODE` + `ONLINE` = tiền qua hệ thống (chuyển khoản/QR do operator
+xác nhận thủ công hoặc khách/PayOS/MoMo tự settle). Hóa đơn `WAIVED` (whitelist) không có `payment`
+nên không xuất hiện ở đây — khớp với việc chúng không tính vào `totalRevenue`.
 
 ### GET /api/v1/billing/report/monthly
 **Auth:** ADMIN  
@@ -677,10 +693,16 @@ version (closes its `effectiveTo`) and carries the schedules over.
     "prevMonthRevenue": 84000000,
     "growthRate": 0.0833,
     "avgDailyRevenue": 3033333,
-    "revenueByDay": [ { "date": "2025-06-01", "revenue": 2900000 } ]
+    "revenueByDay": [ { "date": "2025-06-01", "revenue": 2900000 } ],
+    "revenueByMethod": [
+      { "method": "CASH", "revenue": 38000000, "count": 900 },
+      { "method": "QR_CODE", "revenue": 15000000, "count": 210 },
+      { "method": "ONLINE", "revenue": 38000000, "count": 710 }
+    ]
   }
 }
 ```
+`revenueByMethod`: xem giải thích BR-005-8 ở `GET /billing/report/daily` — cùng shape, gộp theo cả tháng.
 
 ---
 

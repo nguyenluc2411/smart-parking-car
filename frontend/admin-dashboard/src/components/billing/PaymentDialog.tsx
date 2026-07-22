@@ -26,6 +26,11 @@ import {
 } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/utils";
 
+/**
+ * Xác nhận thanh toán thủ công của operator (BR-005-3: chỉ dùng cho ca ngoại lệ — kiosk cổng ra
+ * lỗi, hoặc khách trả trực tiếp không qua hệ thống). Luồng chính "khách tự chọn tiền mặt/quét mã"
+ * nằm ở kiosk cổng ra (frontend/demo), nơi khách tự tạo QR PayOS/MoMo và tự thanh toán.
+ */
 export function PaymentDialog({ invoice }: { invoice: Invoice }) {
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState<PaymentMethod>("CASH");

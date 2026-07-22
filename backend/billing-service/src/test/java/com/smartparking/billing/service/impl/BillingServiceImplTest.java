@@ -168,13 +168,64 @@ class BillingServiceImplTest {
         verify(outboxEventRepository, never()).save(any());
     }
 
+    /**
+     * BR-004-5: "Phí tính tại thời điểm xe ra" — if the rate is changed by an admin while the car
+     * is still parked, the invoice must be priced with the rate effective at EXIT time, not the
+     * one effective when the car entered. There is no proration: the whole stay is billed at a
+     * single rate (whichever governs at exit).
+     */
+    @Test
+    void handleSessionClosed_rateChangedDuringStay_usesRateEffectiveAtExit() throws Exception {
+        ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
+        OffsetDateTime entryTime = OffsetDateTime.parse("2026-06-20T03:00:00Z"); // rateA was effective
+        OffsetDateTime exitTime = OffsetDateTime.parse("2026-06-20T03:45:00Z");  // rateB now effective
+        SessionClosedEventDTO event = new SessionClosedEventDTO(
+                "evt-closed", SESSION_ID, PLATE, entryTime, exitTime, 2700, false);
+
+        Rate rateB = Rate.builder()
+                .id(UUID.randomUUID())
+                .ratePerMin(new BigDecimal("300.00"))
+                .peakMultiplier(new BigDecimal("1.5"))
+                .overnightFlat(new BigDecimal("30000.00"))
+                .minCharge(new BigDecimal("5000.00"))
+                .build();
+        FeeCalculation feeUnderRateB = new FeeCalculation(2700, 45, rateB.getRatePerMin(),
+                false, false, new BigDecimal("18000.00"));
+
+        when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
+        // Admin updated the rate mid-stay: findEffective(exitTime) must resolve to rateB, the one
+        // effective NOW, regardless of what was effective back at entryTime (rateA is never queried).
+        when(rateRepository.findEffective(eq(exitTime), any())).thenReturn(List.of(rateB));
+        when(feeCalculator.calculate(eq(entryTime), eq(exitTime), eq(rateB), any()))
+                .thenReturn(feeUnderRateB);
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> {
+            Invoice i = inv.getArgument(0);
+            i.setId(UUID.randomUUID());
+            return i;
+        });
+        when(invoiceMapper.toInvoiceCalculatedEvent(any(Invoice.class)))
+                .thenReturn(InvoiceCalculatedEventDTO.builder()
+                        .sessionId(SESSION_ID).plateNumber(PLATE).status(InvoiceStatus.PENDING).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        service.handleSessionClosed(event);
+
+        verify(rateRepository).findEffective(eq(exitTime), any());
+        ArgumentCaptor<Invoice> captor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository).save(captor.capture());
+        // Priced with rateB (300/min), not rateA (200/min) — the whole 45-min stay, no proration.
+        assertEquals(0, captor.getValue().getRatePerMin().compareTo(rateB.getRatePerMin()));
+        assertEquals(0, captor.getValue().getAmount().compareTo(new BigDecimal("18000.00")));
+    }
+
     // ----------------------------------------------------------------------------------------
     // listInvoices (operator/admin)
     // ----------------------------------------------------------------------------------------
 
     private InvoiceResponseDTO invoiceResponse(Invoice i) {
         return new InvoiceResponseDTO(i.getId(), i.getSessionId(), i.getPlateNumber(),
-                null, null, 0, BigDecimal.ZERO, false, false, i.getAmount(), i.getStatus());
+                null, null, 0, BigDecimal.ZERO, false, false, i.getAmount(), i.getStatus(),
+                null, null, null);
     }
 
     @Test

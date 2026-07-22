@@ -142,7 +142,7 @@ public class BillingServiceImpl implements BillingService {
         Invoice invoice = invoiceRepository.findBySessionId(sessionId)
                 .orElseThrow(() -> new InvoiceNotFoundException(
                         "No invoice for sessionId=" + sessionId));
-        return invoiceMapper.toInvoiceResponse(invoice);
+        return invoiceMapper.toInvoiceResponse(invoice, rateAppliedTo(invoice));
     }
 
     @Override
@@ -236,7 +236,7 @@ public class BillingServiceImpl implements BillingService {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new InvoiceNotFoundException("No invoice with id=" + invoiceId));
         requireOwnership(invoice, plates);
-        return invoiceMapper.toInvoiceResponse(invoice);
+        return invoiceMapper.toInvoiceResponse(invoice, rateAppliedTo(invoice));
     }
 
     @Override
@@ -607,6 +607,14 @@ public class BillingServiceImpl implements BillingService {
                 .status(invoice.getStatus())
                 .paidAt(payment.getPaidAt())
                 .build();
+    }
+
+    /** The exact {@link Rate} that priced this invoice (BR-004-5 traceability) — never the current one. */
+    private Rate rateAppliedTo(Invoice invoice) {
+        return rateRepository.findById(invoice.getRateId())
+                .orElseThrow(() -> new RateNotFoundException(
+                        "Rate %s referenced by invoice %s not found".formatted(
+                                invoice.getRateId(), invoice.getId())));
     }
 
     private Rate findEffectiveRate(SessionClosedEventDTO event) {

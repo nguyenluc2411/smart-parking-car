@@ -57,6 +57,11 @@
 - **BR-005-4:** Whitelist vehicles: cổng ra **mở ngay** (không chờ thanh toán), invoice được đánh dấu WAIVED.
 - **BR-005-5 (Barie gated theo thanh toán):** Với xe **vãng lai**, barie cổng ra **giữ đóng cho tới khi `payment.completed`**. Ngoại lệ mở ngay: **whitelist** (miễn phí) và **manual-exit của operator** (người duyệt). Một thao tác mở cổng do operator luôn được tôn trọng.
 - **BR-005-6 (Ngoài giờ vận hành):** Trong khung 22:00–06:00 vẫn **bắt thanh toán QR như ban ngày** (không còn "ra tự do ngoài giờ"). QR MoMo 24/7 nên xe vãng lai vẫn trả được không cần nhân viên → **không còn thất thu ngoài giờ**. Phí ngoài giờ theo `overnight_flat` (BR-004-3).
+- **BR-005-8 (Báo cáo doanh thu theo phương thức — yêu cầu giảng viên):** Báo cáo doanh thu
+  (`GET /billing/report/daily`, `/monthly`) phải tách được **tiền mặt** (`CASH`) và **tiền hệ thống**
+  (`QR_CODE` + `ONLINE`, gộp lại vì cùng là tiền không qua tay operator trực tiếp) — trường
+  `revenueByMethod`, gộp theo `payments.method` cho các invoice trong kỳ. Hóa đơn `WAIVED`
+  (whitelist) không có `payment` nên không xuất hiện trong breakdown này.
 - **BR-005-7 (Loại trừ giữa các kênh thanh toán):** Một invoice chỉ được thanh toán qua **đúng 1 kênh**. Khi invoice được settle qua bất kỳ kênh nào (operator xác nhận CASH/QR_CODE qua dashboard, driver tự trả qua app, hoặc MoMo báo thanh toán thành công), billing-service **hủy PayOS payment link còn đang PENDING của invoice đó** (nếu có) qua PayOS API để khách không thể quét QR PayOS trả tiếp trên một invoice đã thu tiền. MoMo không có API hủy public — trường hợp PayOS trả trước, lệnh MoMo cũ chỉ được vô hiệu hoá gián tiếp qua guard idempotent trên invoice status (không tạo thanh toán trùng trong hệ thống, nhưng không hủy được ở phía cổng MoMo). Hệ quả UI: một khi operator chọn xác nhận **tiền mặt**, client hiển thị QR cho khách (kiosk cổng ra) phải **dừng tạo/hiển thị QR mới** cho invoice đó; ngược lại một khi khách đã chọn thanh toán QR, thao tác xác nhận tiền mặt cho invoice đó ở dashboard sẽ bị từ chối (invoice không còn ở trạng thái PENDING).
 
 ## BR-006: Điều khiển barie

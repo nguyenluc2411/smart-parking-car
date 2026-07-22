@@ -17,6 +17,9 @@ public record InvoiceResponseDTO(
         boolean peakApplied,
         boolean overnightApplied,
         BigDecimal amount,
-        InvoiceStatus status
+        InvoiceStatus status,
+        BigDecimal peakMultiplier,
+        BigDecimal overnightFlat,
+        BigDecimal minCharge
 ) {
 }

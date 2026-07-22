@@ -187,7 +187,8 @@ export interface Alert {
 
 // ─── Billing ──────────────────────────────────────────────
 export type InvoiceStatus = "PENDING" | "PAID" | "WAIVED";
-export type PaymentMethod = "CASH" | "QR_CODE";
+// ONLINE = gate self-pay settled via PayOS/MoMo gateway (BillingServiceImpl.settleOnlinePaid).
+export type PaymentMethod = "CASH" | "QR_CODE" | "ONLINE";
 
 export interface Invoice {
   invoiceId: string;
@@ -201,6 +202,11 @@ export interface Invoice {
   overnightApplied: boolean;
   amount: number;
   status: InvoiceStatus;
+  // Only populated by GET /billing/sessions/{sessionId} (single-invoice detail) — the rate
+  // actually applied to this invoice (BR-004-5 traceability), not whatever is effective now.
+  peakMultiplier?: number;
+  overnightFlat?: number;
+  minCharge?: number;
 }
 
 export interface PaymentRequest {
@@ -242,6 +248,12 @@ export interface UpdateRateRequest {
   minCharge: number;
 }
 
+export interface MethodRevenue {
+  method: PaymentMethod;
+  revenue: number;
+  count: number;
+}
+
 export interface DailyReport {
   date: string;
   totalSessions: number;
@@ -249,6 +261,7 @@ export interface DailyReport {
   peakSessions: number;
   avgDurationMinutes: number;
   revenueByHour: { hour: number; revenue: number; sessions: number }[];
+  revenueByMethod: MethodRevenue[];
 }
 
 export interface MonthlyReport {
@@ -259,6 +272,7 @@ export interface MonthlyReport {
   growthRate: number;
   avgDailyRevenue: number;
   revenueByDay: { date: string; revenue: number }[];
+  revenueByMethod: MethodRevenue[];
 }
 
 // ─── Users ────────────────────────────────────────────────
