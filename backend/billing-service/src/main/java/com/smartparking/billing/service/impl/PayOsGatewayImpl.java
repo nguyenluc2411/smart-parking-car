@@ -90,6 +90,23 @@ public class PayOsGatewayImpl implements PayOsGateway {
     }
 
     @Override
+    public void cancelPayment(long orderCode, String reason) {
+        PayOS payOS = payOSProvider.getIfAvailable();
+        if (payOS == null) {
+            log.warn("PayOS cancel skipped for orderCode={}: client not configured", orderCode);
+            return;
+        }
+        try {
+            payOS.paymentRequests().cancel(orderCode, reason);
+            log.info("PayOS payment link cancelled: orderCode={}, reason={}", orderCode, reason);
+        } catch (Exception ex) {
+            // Best-effort (BR-005-7): the invoice is already settled via another channel either
+            // way, so a cancel failure (already paid/expired/cancelled at PayOS) must not surface.
+            log.warn("PayOS cancel failed for orderCode={}: {}", orderCode, ex.getMessage());
+        }
+    }
+
+    @Override
     public WebhookData verifyWebhook(Map<String, Object> payload) {
         PayOS payOS = payOSProvider.getIfAvailable();
         if (payOS == null) {

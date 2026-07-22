@@ -60,6 +60,8 @@
   #paysuccess .pay-sub { margin-top:10px; font-size:15px; color:#a7f3d0; font-weight:500; }
   @keyframes payPop { from { transform:scale(.92); opacity:0; } to { transform:scale(1); opacity:1; } }
   #qrbox.paid .pay-grid, #qrbox.paid #paywait, #qrbox.paid .pill { display:none !important; }
+  /* BR-005-7: chọn tiền mặt thì không tạo/hiện QR — chỉ chờ operator xác nhận qua dashboard. */
+  #qrbox.cash .pay-grid { display:none !important; }
   a.link { color:#7dd3fc; font-size:12px; }
   .statusbar { display:flex; gap:22px; align-items:center; flex-wrap:wrap;
                padding:10px 22px; border-bottom:1px solid var(--line); background:#141931; }
@@ -157,8 +159,9 @@
       </div>
     </div>
 
-    <div class="row" style="justify-content:center;margin-top:12px">
-      <button class="momo" id="btnPay" style="display:none">Hiện QR thanh toán</button>
+    <div class="row" id="paymethod" style="justify-content:center;margin-top:12px;display:none;gap:10px">
+      <button class="momo" id="btnCash">💵 Tiền mặt</button>
+      <button class="payos" id="btnTransfer">📱 Chuyển khoản (QR)</button>
     </div>
 
     <div id="qrbox">
@@ -472,7 +475,8 @@ function resetResult() {
   $('#plate').textContent = '—';
   $('#conf').textContent = 'confidence: —';
   $('#lat').textContent = '—';
-  $('#btnPay').style.display = 'none';
+  $('#paymethod').style.display = 'none';
+  $('#qrbox').classList.remove('cash');
   $('#qrbox').style.display = 'none';
   lastPlate = null;
   lastSession = null;
@@ -568,7 +572,23 @@ async function scan(direction, providedFrames, fromAuto) {
 }
 
 $('#btnFlip').onclick = ()=> startCamera(facing === 'environment' ? 'user' : 'environment');
-$('#btnPay').onclick = ()=> { if (lastPlate) loadPayments(lastPlate); };
+// BR-005-7: khách/nhân viên chọn phương thức TRƯỚC — chọn tiền mặt thì không tạo QR nào cả.
+$('#btnTransfer').onclick = ()=> {
+  if (!lastPlate) return;
+  $('#paymethod').style.display = 'none';
+  loadPayments(lastPlate);
+};
+$('#btnCash').onclick = ()=> {
+  if (!lastSession) return;
+  $('#paymethod').style.display = 'none';
+  $('#qrbox').classList.add('cash');
+  $('#qrbox').style.display = 'block';
+  $('#qrbox').scrollIntoView({ behavior:'smooth', block:'center' });
+  $('#payst').className = 'pill pending'; $('#payst').textContent = 'PENDING';
+  hidePaymentSuccess();
+  setMsg('Đã chọn tiền mặt — chờ nhân viên xác nhận thanh toán trên dashboard.', 'ok');
+  startPaymentPoll();
+};
 $('#btnIn').onclick  = ()=> scan('IN',  null);
 $('#btnOut').onclick = ()=> scan('OUT', null);
 
@@ -752,6 +772,9 @@ async function pollPaymentOnce() {
 function startPaymentPoll() {
   stopPaymentPoll();
   payPollStart = Date.now();
+  $('#paywait').textContent = $('#qrbox').classList.contains('cash')
+    ? 'Đang chờ nhân viên xác nhận thanh toán tiền mặt ...'
+    : 'Đang chờ thanh toán ...';
   $('#paywait').style.display = 'block';
   pollPaymentOnce();
   payPollTimer = setInterval(pollPaymentOnce, PAY_POLL_MS);
@@ -765,12 +788,15 @@ async function resolveOutcome(direction, plate) {
     if (o.availability) renderAvail(o.availability);
     setMsg(o.message || '—', o.barrier ? 'ok' : 'bad');
     $('#scanstate').textContent = o.barrier ? 'Barie mở' : 'Barie không mở';
-    // Chỉ tạo QR khi hóa đơn PENDING. Xe whitelist (WAIVED) / đã trả → KHÔNG tạo QR (hết vòng lặp).
+    // BR-005-7: hóa đơn PENDING → hỏi phương thức TRƯỚC (tiền mặt hay chuyển khoản), không tự
+    // tạo QR ngay. Xe whitelist (WAIVED) / đã trả → không hỏi gì (hết vòng lặp).
     if (direction === 'OUT' && o.needsPayment) {
-      $('#btnPay').style.display = 'inline-block';
-      loadPayments(plate);
+      lastPlate = plate;
+      lastSession = o.sessionId || null;
+      $('#paymethod').style.display = 'flex';
     } else {
-      $('#btnPay').style.display = 'none';
+      $('#paymethod').style.display = 'none';
+      $('#qrbox').classList.remove('cash');
       $('#qrbox').style.display = 'none';
     }
   } catch (e) {
