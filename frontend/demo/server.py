@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 EDGE_URL = os.getenv("EDGE_URL", "http://localhost:8000")
@@ -240,6 +240,79 @@ async def invoice_status(session_id: str):
             "status": (data.get("status") or "").upper(),
             "amount": data.get("amount"),
         })
+
+
+async def _login_as(client: httpx.AsyncClient, username: str, password: str) -> str:
+    """Log in as a NAMED operator — not the cached shared admin. Never cached.
+
+    Outage cash is the one flow where "who took the money" has to be true: billing stamps
+    payments.received_by from the JWT subject, and that column is the only thing tying a paper
+    voucher to a person. Reusing the shared admin token here would attribute every outage
+    payment to `admin` and make the voucher reconciliation worthless.
+    """
+    r = await client.post(f"{ADMIN_URL}/api/v1/auth/login",
+                          json={"username": username, "password": password})
+    r.raise_for_status()
+    return r.json()["data"]["accessToken"]
+
+
+@app.post("/api/pay/offline")
+async def pay_offline(payload: dict = Body(...)):
+    """BR-005-7: key in cash that was taken by hand while the gate had no power.
+
+    Body: {plate, voucherNo, paidAt (ISO-8601), username, password, note?}. The operator signs in
+    with their OWN account so the payment is attributed to them. The amount is NOT taken from the
+    client — it is read off the invoice, so a mistyped figure cannot under-settle the bill.
+    """
+    plate = _norm_plate(payload.get("plate"))
+    voucher = (payload.get("voucherNo") or "").strip()
+    paid_at = (payload.get("paidAt") or "").strip()
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
+
+    missing = [k for k, v in (("plate", plate), ("voucherNo", voucher), ("paidAt", paid_at),
+                              ("username", username), ("password", password)) if not v]
+    if missing:
+        return JSONResponse(status_code=400, content={"error": "Thiếu: " + ", ".join(missing)})
+
+    async with httpx.AsyncClient(timeout=60) as c:
+        try:
+            token = await _login_as(c, username, password)
+        except httpx.HTTPStatusError:
+            return JSONResponse(status_code=401,
+                                content={"error": f"Sai tài khoản/mật khẩu nhân viên ({username})"})
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Latest CLOSED session for the plate — same lookup the QR flows use.
+        sr = await c.get(f"{PARKING_URL}/api/v1/sessions", headers=headers,
+                         params={"plate": plate, "status": "CLOSED", "size": 1, "page": 0})
+        items = (sr.json().get("data") or {}).get("content") or []
+        if not items:
+            return JSONResponse(status_code=404,
+                                content={"error": f"Chưa có phiên đã ĐÓNG cho biển {plate}"})
+        session_id = items[0]["id"]
+
+        ir = await c.get(f"{BILLING_URL}/api/v1/billing/sessions/{session_id}", headers=headers)
+        invoice = ir.json().get("data") or {}
+        status = (invoice.get("status") or "").upper()
+        if status != "PENDING":
+            # Already settled (QR went through before the power cut, or keyed in twice).
+            return JSONResponse(status_code=409, content={
+                "sessionId": session_id, "status": status,
+                "error": f"Hóa đơn đã ở trạng thái {status} — KHÔNG thu lại lần hai."})
+
+        pr = await c.post(
+            f"{BILLING_URL}/api/v1/billing/sessions/{session_id}/pay", headers=headers,
+            json={"method": "CASH_OFFLINE", "amountPaid": invoice.get("amount"),
+                  "offlineVoucherNo": voucher, "paidAt": paid_at,
+                  "note": payload.get("note") or f"Thu tay lúc mất điện — phiếu {voucher}"})
+        body = pr.json()
+        data = body.get("data") or body
+        if isinstance(data, dict):
+            data["sessionId"] = session_id
+            data["amount"] = invoice.get("amount")
+            data["receivedBy"] = username
+        return JSONResponse(status_code=pr.status_code, content=data)
 
 
 def _norm_plate(p: str | None) -> str:

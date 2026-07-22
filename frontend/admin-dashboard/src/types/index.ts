@@ -30,13 +30,16 @@ export interface AuthResponse {
 }
 
 // ─── Slots ────────────────────────────────────────────────
-export type SlotStatus = "EMPTY" | "OCCUPIED" | "MAINTENANCE";
+export type SlotStatus = "EMPTY" | "OCCUPIED" | "RESERVED" | "MAINTENANCE";
 
 export interface SlotAvailability {
   totalSlots: number;
   occupiedSlots: number;
+  /** Held for a driver's booking (BR-009); unavailable to a walk-in. */
+  reservedSlots: number;
   emptySlots: number;
   maintenanceSlots: number;
+  /** (occupied + reserved) / total — a held slot cannot take a car, so it counts as used. */
   occupancyRate: number;
 }
 
@@ -46,6 +49,9 @@ export interface Slot {
   zone: string;
   status: SlotStatus;
   currentSessionId: string | null;
+  /** Position on the zone map (BR-003-6); null for slots created before the map existed. */
+  gridRow: number | null;
+  gridCol: number | null;
 }
 
 export interface CreateSlotRequest {

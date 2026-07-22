@@ -21,6 +21,13 @@ const segmentConfig = [
     dotClass: "bg-indigo-500",
   },
   {
+    key: "reservedSlots" as keyof SlotAvailability,
+    label: "Đã đặt",
+    colorClass: "text-cyan-500",
+    bgClass: "bg-cyan-500/8 dark:bg-cyan-500/12 border-cyan-500/20",
+    dotClass: "bg-cyan-500",
+  },
+  {
     key: "maintenanceSlots" as keyof SlotAvailability,
     label: "Bảo trì",
     colorClass: "text-amber-500",
@@ -31,6 +38,9 @@ const segmentConfig = [
 
 export const SlotGauge = React.memo(function SlotGauge({ data }: { data: SlotAvailability }) {
   const pct = Math.round(data.occupancyRate * 100);
+  // Reserved slots are unavailable to a walk-in (BR-009-4), so they belong in the same count the
+  // percentage is built from — otherwise the fraction beside it reads lower than the bar.
+  const usedSlots = data.occupiedSlots + (data.reservedSlots ?? 0);
 
   const barGradient =
     pct >= 90
@@ -69,7 +79,7 @@ export const SlotGauge = React.memo(function SlotGauge({ data }: { data: SlotAva
             <span className="text-xl font-bold text-muted-foreground ml-0.5">%</span>
           </div>
           <p className="text-sm text-muted-foreground tabular-nums font-medium pb-1">
-            {data.occupiedSlots}<span className="text-muted-foreground/50 mx-1">/</span>{data.totalSlots} chỗ
+            {usedSlots}<span className="text-muted-foreground/50 mx-1">/</span>{data.totalSlots} chỗ
           </p>
         </div>
 
@@ -82,7 +92,7 @@ export const SlotGauge = React.memo(function SlotGauge({ data }: { data: SlotAva
         </div>
 
         {/* Segment cards */}
-        <div className="mt-5 grid grid-cols-3 gap-2.5">
+        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {segmentConfig.map(({ key, label, colorClass, bgClass, dotClass }) => (
             <div
               key={key}
