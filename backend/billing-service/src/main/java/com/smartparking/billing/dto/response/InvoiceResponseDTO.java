@@ -19,7 +19,19 @@ public record InvoiceResponseDTO(
         BigDecimal amount,
         InvoiceStatus status,
         /** BR-004 line items; {@code null} for invoices issued before the V6 migration. */
-        BreakdownDTO breakdown
+        BreakdownDTO breakdown,
+        /**
+         * The tariff constants behind the amount. Populated only on single-invoice detail views —
+         * list views leave them null rather than pay an N+1 rate lookup per row.
+         *
+         * <p>These say what the prices WERE; {@link #breakdown} says how many of each were charged.
+         * Kept alongside each other because a receipt needs both, and because the two were built
+         * against different sources: the breakdown reads the snapshot stored on the invoice, these
+         * fall back to the rate row the invoice references.
+         */
+        BigDecimal peakMultiplier,
+        BigDecimal overnightFlat,
+        BigDecimal minCharge
 ) {
 
     /**

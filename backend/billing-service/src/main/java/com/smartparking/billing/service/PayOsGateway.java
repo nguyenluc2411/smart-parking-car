@@ -30,4 +30,15 @@ public interface PayOsGateway {
 
     /** Verify PayOS webhook HMAC signature via SDK. */
     WebhookData verifyWebhook(Map<String, Object> payload);
+
+    /**
+     * Cancel a PayOS payment link (BR-005-9): used when the invoice settles through another
+     * channel (cash or MoMo) while a PayOS QR is still outstanding. Best-effort — implementations
+     * must not throw on gateway/transport failure, only log, since the invoice is already settled
+     * on our side regardless of whether the cancel succeeds.
+     *
+     * @param orderCode the PayOS order code to cancel
+     * @param reason    human-readable cancellation reason shown by PayOS
+     */
+    void cancelPayment(long orderCode, String reason);
 }
