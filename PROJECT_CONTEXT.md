@@ -41,9 +41,10 @@
 - [x] `RESERVED` tính là **đã dùng** ở `availability`/`occupancyRate` + resync **không** giải phóng slot
       đang được giữ (BR-003-4b) — lỗ hổng này sẽ trao chỗ đã hứa cho xe vãng lai kế tiếp
 - [x] Docs sync: BR-003-4b/BR-003-6/BR-009 + endpoint reservations + schema `reservations`/grid cột
-- [x] **E2E với DB thật (2026-07-22)**: `docker compose up -d --build`, 4 migration mới migrate sạch;
-      kịch bản đặt chỗ chạy thật đủ 17 check (grid coords → đặt chỗ → resync không giải phóng →
-      chặn đặt trùng → xe vào nhận đúng slot đã giữ → hủy trả slot) + 4 check guard BR-009-3b.
+- [x] **E2E với DB thật (2026-07-22)** — script nằm ở `backend/e2e/`, chạy `python backend/e2e/run_all.py`:
+      `docker compose up -d --build`, 4 migration mới migrate sạch; 40 check pass (đặt chỗ + tọa độ
+      lưới + resync không giải phóng slot đang giữ + guard BR-009-3b + `collected`/breakdown/thu tiền
+      mặt lúc mất điện/chặn thu hai lần). Đã chạy lại sau khi merge `payment-method-exclusivity`.
       **Ba thứ chỉ e2e mới lộ ra:**
       1. billing V6 **gãy trên DB thật**: đã tồn tại 1 hóa đơn bị thu **hai lần** (2 payment `ONLINE`
          cách nhau 3,4s) nên `uq_payments_invoice_id` không tạo được. V6 nay giữ payment sớm nhất và
@@ -63,7 +64,8 @@
 - [ ] BR-005-2 Phase 2: auto-pay QR (ngoài scope RBL)
 - [ ] billing `/report/export` CSV
 - [ ] Monitoring mở rộng: alertmanager, node-exporter, kafka-exporter
-- [ ] Integration tests (Testcontainers)
+- [x] ~~Integration tests~~ → có **e2e trên stack thật** ở `backend/e2e/` (`python backend/e2e/run_all.py`,
+      40 check, stdlib thuần). Testcontainers vẫn chưa làm — e2e này cần `docker compose up` sẵn.
 
 ---
 
