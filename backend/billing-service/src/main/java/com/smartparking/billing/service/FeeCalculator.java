@@ -98,17 +98,19 @@ public class FeeCalculator {
         BigDecimal overnightCharge = rate.getOvernightFlat()
                 .multiply(BigDecimal.valueOf(overnightFlatNights));
 
-        BigDecimal amount = normalCharge.add(peakCharge).add(overnightCharge)
-                .max(rate.getMinCharge())
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal charged = normalCharge.add(peakCharge).add(overnightCharge);
+        BigDecimal amount = charged.max(rate.getMinCharge()).setScale(2, RoundingMode.HALF_UP);
 
         boolean peakApplied = peakBlocks > 0;
         boolean overnightApplied = overnightFlatNights > 0;
+        boolean minChargeApplied = charged.compareTo(rate.getMinCharge()) < 0;
         log.debug("Fee (30-min block): normalBlk={}, peakBlk={}, graceBlk={}, flatNights={}, amount={}",
                 normalBlocks, peakBlocks, graceNormalBlocks, overnightFlatNights, amount);
 
         return new FeeCalculation(durationSeconds, durationMinutes, ratePerMin,
-                peakApplied, overnightApplied, amount);
+                peakApplied, overnightApplied, amount,
+                BLOCK_MINUTES, normalBlocks + graceNormalBlocks, peakBlocks, overnightFlatNights,
+                minChargeApplied);
     }
 
     /** BR-004-3: 22:00–06:00 (the overnight_flat window). */

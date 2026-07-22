@@ -7,10 +7,13 @@ import java.util.List;
 public record DailyReportDTO(
         String date,
         int totalSessions,
+        /** Billed: invoice amounts for sessions exiting this day (see {@link CollectionSummaryDTO}). */
         BigDecimal totalRevenue,
         int peakSessions,
         int avgDurationMinutes,
-        List<HourRevenue> revenueByHour
+        List<HourRevenue> revenueByHour,
+        /** Collected: payments stamped this day, split cash vs gateway. */
+        CollectionSummaryDTO collected
 ) {
     public record HourRevenue(int hour, BigDecimal revenue, int sessions) {
     }

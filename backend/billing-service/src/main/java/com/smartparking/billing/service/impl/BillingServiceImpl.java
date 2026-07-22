@@ -38,6 +38,7 @@ import com.smartparking.billing.service.FeeCalculator;
 import com.smartparking.billing.service.MoMoGateway;
 import com.smartparking.billing.service.PayOsGateway;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -123,6 +124,15 @@ public class BillingServiceImpl implements BillingService {
                 .overnightApplied(fee.overnightApplied())
                 .amount(amount)
                 .status(status)
+                // BR-004 breakdown + the tariff it was priced with, so the receipt stays
+                // explainable after the rate table moves on.
+                .blockMinutes(fee.blockMinutes())
+                .normalBlocks(fee.normalBlocks())
+                .peakBlocks(fee.peakBlocks())
+                .overnightNights(fee.overnightNights())
+                .peakMultiplier(rate.getPeakMultiplier())
+                .overnightFlat(rate.getOvernightFlat())
+                .minChargeApplied(fee.minChargeApplied())
                 .build());
 
         recordOutbox(invoiceCalculatedTopic, "Invoice", invoice.getSessionId(),
@@ -148,7 +158,8 @@ public class BillingServiceImpl implements BillingService {
     @Override
     @Transactional
     public PaymentResponseDTO pay(UUID sessionId, PayRequestDTO request, UUID operatorId) {
-        Invoice invoice = invoiceRepository.findBySessionId(sessionId)
+        // BR-005-2: lock the row — an online settlement can land while the operator takes cash.
+        Invoice invoice = invoiceRepository.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new InvoiceNotFoundException(
                         "No invoice for sessionId=" + sessionId));
 
@@ -162,6 +173,7 @@ public class BillingServiceImpl implements BillingService {
                     "Amount paid %s is less than invoice amount %s"
                             .formatted(request.amountPaid(), invoice.getAmount()));
         }
+        validateOfflineFields(request, invoice);
 
         Payment payment = paymentRepository.save(Payment.builder()
                 .invoiceId(invoice.getId())
@@ -169,6 +181,8 @@ public class BillingServiceImpl implements BillingService {
                 .amountPaid(request.amountPaid())
                 .payerType(PayerType.OPERATOR)
                 .receivedBy(operatorId)
+                .offlineVoucherNo(request.offlineVoucherNo())
+                .paidAt(request.paidAt())          // null -> @PrePersist stamps now (live payments)
                 .note(request.note())
                 .build());
 
@@ -585,6 +599,43 @@ public class BillingServiceImpl implements BillingService {
                 .status(invoice.getStatus())
                 .paidAt(payment.getPaidAt())
                 .build();
+    }
+
+    /**
+     * BR-005-7: the outage-only fields belong to CASH_OFFLINE and nothing else. Live payments are
+     * stamped by the server, so accepting a caller-supplied {@code paidAt} there would let an
+     * operator backdate takings; and a CASH_OFFLINE row without a voucher serial cannot be
+     * reconciled against the paper book, which is the only control on outage cash.
+     */
+    private void validateOfflineFields(PayRequestDTO request, Invoice invoice) {
+        boolean offline = request.method() == PaymentMethod.CASH_OFFLINE;
+        String voucher = request.offlineVoucherNo();
+
+        if (!offline) {
+            if (voucher != null || request.paidAt() != null) {
+                throw new InvalidPaymentException(
+                        "offlineVoucherNo/paidAt are only accepted for CASH_OFFLINE (method=%s)"
+                                .formatted(request.method()));
+            }
+            return;
+        }
+
+        if (voucher == null || voucher.isBlank()) {
+            throw new InvalidPaymentException("CASH_OFFLINE requires the paper voucher serial");
+        }
+        if (request.paidAt() == null) {
+            throw new InvalidPaymentException(
+                    "CASH_OFFLINE requires paidAt — the time the cash was actually taken");
+        }
+        if (request.paidAt().isAfter(OffsetDateTime.now())) {
+            throw new InvalidPaymentException("paidAt is in the future: " + request.paidAt());
+        }
+        // The driver cannot have paid before their car left the barrier.
+        if (request.paidAt().isBefore(invoice.getExitTime())) {
+            throw new InvalidPaymentException(
+                    "paidAt %s is before the session exit time %s"
+                            .formatted(request.paidAt(), invoice.getExitTime()));
+        }
     }
 
     private Rate findEffectiveRate(SessionClosedEventDTO event) {
