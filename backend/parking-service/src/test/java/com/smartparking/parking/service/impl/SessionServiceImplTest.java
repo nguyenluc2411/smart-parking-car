@@ -25,6 +25,7 @@ import com.smartparking.parking.entity.enums.SlotStatus;
 import com.smartparking.parking.entity.enums.VehicleType;
 import com.smartparking.parking.mapper.SessionMapper;
 import com.smartparking.parking.service.AlertService;
+import com.smartparking.parking.service.ReservationService;
 import com.smartparking.parking.repository.GateLogRepository;
 import com.smartparking.parking.repository.GateRepository;
 import com.smartparking.parking.repository.OutboxEventRepository;
@@ -69,6 +70,7 @@ class SessionServiceImplTest {
     @Mock private SessionMapper sessionMapper;
     @Mock private ObjectMapper objectMapper;
     @Mock private AlertService alertService;
+    @Mock private ReservationService reservationService;
 
     @InjectMocks private SessionServiceImpl service;
 
