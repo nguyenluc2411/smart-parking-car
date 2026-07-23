@@ -1,11 +1,15 @@
 package com.smartparking.billing.service.impl;
 
+import com.smartparking.billing.dto.response.CollectionSummaryDTO;
+import com.smartparking.billing.dto.response.CollectionSummaryDTO.MethodAmount;
 import com.smartparking.billing.dto.response.DailyReportDTO;
 import com.smartparking.billing.dto.response.DailyReportDTO.HourRevenue;
 import com.smartparking.billing.dto.response.MonthlyReportDTO;
 import com.smartparking.billing.dto.response.MonthlyReportDTO.DayRevenue;
 import com.smartparking.billing.entity.Invoice;
+import com.smartparking.billing.entity.enums.PaymentMethod;
 import com.smartparking.billing.repository.InvoiceRepository;
+import com.smartparking.billing.repository.PaymentRepository;
 import com.smartparking.billing.service.ReportService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -13,8 +17,11 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReportServiceImpl implements ReportService {
 
     private final InvoiceRepository invoiceRepository;
+    private final PaymentRepository paymentRepository;
 
     @Value("${app.billing.zone-id}")
     private String zoneId;
@@ -58,7 +66,7 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         return new DailyReportDTO(date.toString(), totalSessions, totalRevenue, peakSessions,
-                avgDuration, revenueByHour);
+                avgDuration, revenueByHour, collected(from, to));
     }
 
     @Override
@@ -91,7 +99,31 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
 
         return new MonthlyReportDTO(month.toString(), invoices.size(), totalRevenue, prevRevenue,
-                growthRate, avgDaily, revenueByDay);
+                growthRate, avgDaily, revenueByDay, collected(from, to));
+    }
+
+    /**
+     * BR-005: what was actually taken in [from, to), split by method. Cash (incl. outage cash keyed
+     * in later, BR-005-7) is what a till is counted against; gateway money never passed through
+     * anyone's hands. Deliberately keyed on payment time, so it will not tie out to totalRevenue.
+     */
+    private CollectionSummaryDTO collected(OffsetDateTime from, OffsetDateTime to) {
+        List<MethodAmount> byMethod = paymentRepository.sumByMethodInRange(from, to).stream()
+                .map(t -> new MethodAmount(t.getMethod(),
+                        t.getAmount() == null ? BigDecimal.ZERO : t.getAmount(), t.getCount()))
+                .toList();
+
+        BigDecimal cash = totalOf(byMethod, PaymentMethod.CASH, PaymentMethod.CASH_OFFLINE);
+        BigDecimal gateway = totalOf(byMethod, PaymentMethod.QR_CODE, PaymentMethod.ONLINE);
+        return new CollectionSummaryDTO(cash, gateway, cash.add(gateway), byMethod);
+    }
+
+    private static BigDecimal totalOf(List<MethodAmount> byMethod, PaymentMethod... methods) {
+        Set<PaymentMethod> wanted = EnumSet.copyOf(Arrays.asList(methods));
+        return byMethod.stream()
+                .filter(m -> wanted.contains(m.method()))
+                .map(MethodAmount::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private static BigDecimal sum(List<Invoice> invoices) {

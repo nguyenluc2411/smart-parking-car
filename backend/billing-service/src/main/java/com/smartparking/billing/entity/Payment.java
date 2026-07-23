@@ -57,6 +57,9 @@ public class Payment {
     @Column(name = "provider_ref", length = 100)
     private String providerRef;        // payment-gateway transaction ref (online)
 
+    @Column(name = "offline_voucher_no", length = 20)
+    private String offlineVoucherNo;   // paper voucher serial; set only when method=CASH_OFFLINE
+
     @Column(name = "note")
     private String note;
 

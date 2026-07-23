@@ -28,6 +28,9 @@ class GateAutoConfig:
     gate_id: str
     direction: str
     source: str
+    #: BR-001-6 — wide "whole vehicle" camera at the same gate. Never OCR'd; its frame is stored
+    #: beside the detection as evidence. Empty string = this gate runs on one camera.
+    overview_source: str = ""
 
 
 @dataclass
@@ -45,10 +48,12 @@ def _parse_gate_configs(settings: Settings) -> list[GateAutoConfig]:
     configs: list[GateAutoConfig] = []
     if settings.auto_capture_entry_source.strip():
         configs.append(GateAutoConfig(
-            "GATE_ENTRY_01", "IN", settings.auto_capture_entry_source.strip()))
+            "GATE_ENTRY_01", "IN", settings.auto_capture_entry_source.strip(),
+            settings.auto_capture_entry_overview_source.strip()))
     if settings.auto_capture_exit_source.strip():
         configs.append(GateAutoConfig(
-            "GATE_EXIT_01", "OUT", settings.auto_capture_exit_source.strip()))
+            "GATE_EXIT_01", "OUT", settings.auto_capture_exit_source.strip(),
+            settings.auto_capture_exit_overview_source.strip()))
     return configs
 
 
@@ -196,10 +201,11 @@ class AutoCaptureService:
         self._running = True
 
         for cfg in configs:
-            if cfg.source not in self._cameras:
-                cam = PersistentCamera(cfg.source)
-                self._cameras[cfg.source] = cam
-                cam.start()
+            for source in (cfg.source, cfg.overview_source):
+                if source and source not in self._cameras:
+                    cam = PersistentCamera(source)
+                    self._cameras[source] = cam
+                    cam.start()
 
         for cfg in configs:
             task = asyncio.create_task(self._watch_gate(cfg), name=f"auto-{cfg.gate_id}")
@@ -217,6 +223,26 @@ class AutoCaptureService:
         for cam in self._cameras.values():
             cam.stop()
         self._cameras.clear()
+
+    def _store_overview(self, cfg: GateAutoConfig, primary_key: str | None) -> None:
+        """BR-001-6: save the wide camera's view of the same car, next to the plate frame.
+
+        Grabbed after the burst rather than during it: the overview is evidence, not input to a
+        decision, and blocking the ALPR path on a second camera would make plate reads hostage to
+        a camera that has no say in them. Silent no-op when the gate has one camera.
+        """
+        if not cfg.overview_source or not primary_key:
+            return
+        cam = self._cameras.get(cfg.overview_source)
+        if not cam:
+            return
+        frame = cam.get_latest_frame()
+        if not frame:
+            logger.warning("No frame from overview camera %s for gate %s — plate frame stored alone",
+                           cfg.overview_source, cfg.gate_id)
+            return
+        if self._storage.put_overview(frame, primary_key):
+            logger.info("Overview frame stored for gate=%s alongside %s", cfg.gate_id, primary_key)
 
     async def _watch_gate(self, cfg: GateAutoConfig) -> None:
         s = self._settings
@@ -288,6 +314,7 @@ class AutoCaptureService:
                 self._last_plate = result.plate_number
                 self._last_published = result.published
                 if result.published and result.plate_number:
+                    self._store_overview(cfg, result.image_ref)
                     self._fsm.mark_published(cfg.gate_id, cfg.direction, result.plate_number)
                     logger.info(
                         "Auto-capture published: gate=%s dir=%s plate=%s votes=%d",

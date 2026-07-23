@@ -10,6 +10,7 @@ import com.smartparking.parking.entity.Gate;
 import com.smartparking.parking.entity.GateLog;
 import com.smartparking.parking.entity.OutboxEvent;
 import com.smartparking.parking.entity.Session;
+import com.smartparking.parking.entity.Reservation;
 import com.smartparking.parking.entity.Slot;
 import com.smartparking.parking.entity.Vehicle;
 import com.smartparking.parking.entity.enums.AlertSeverity;
@@ -29,6 +30,7 @@ import com.smartparking.parking.repository.SessionRepository;
 import com.smartparking.parking.repository.SlotRepository;
 import com.smartparking.parking.repository.VehicleRepository;
 import com.smartparking.parking.service.AlertService;
+import com.smartparking.parking.service.ReservationService;
 import com.smartparking.parking.service.SessionService;
 import com.smartparking.parking.util.PlateNumbers;
 import java.math.BigDecimal;
@@ -74,6 +76,7 @@ public class SessionServiceImpl implements SessionService {
 
     private final SessionRepository sessionRepository;
     private final SlotRepository slotRepository;
+    private final ReservationService reservationService;
     private final VehicleRepository vehicleRepository;
     private final GateRepository gateRepository;
     private final GateLogRepository gateLogRepository;
@@ -200,25 +203,40 @@ public class SessionServiceImpl implements SessionService {
                     "Biển đang trong bãi lại quét vào — nghi biển giả/clone");
             throw new ConflictException("BR-002-4: plate " + plate + " already has an open session");
         }
-        // BR-002-5 / BR-003-5: full once occupancy reaches capacity minus the buffer.
-        long totalSlots = slotRepository.count();
-        long occupiedSlots = slotRepository.countByStatus(SlotStatus.OCCUPIED);
-        long effectiveCapacity = totalSlots - (long) Math.ceil(totalSlots * capacityBufferPercent / 100.0);
-        if (occupiedSlots >= effectiveCapacity) {
-            throw new ConflictException("BR-002-5: parking full (%d/%d occupied, buffer %d%%)"
-                    .formatted(occupiedSlots, totalSlots, capacityBufferPercent));
+        // BR-009-6: a booked driver takes the slot already held for them. Checked before the
+        // capacity test — their slot is out of the pool already, so "full" must not turn them away.
+        Optional<Reservation> hold = reservationService.findLiveHold(plate);
+        Slot slot;
+        if (hold.isPresent()) {
+            slot = slotRepository.findById(hold.get().getSlotId())
+                    .orElseThrow(() -> new ConflictException(
+                            "BR-009-6: slot đã đặt không còn tồn tại"));
+        } else {
+            // BR-002-5 / BR-003-5 / BR-009-4: full once occupancy reaches capacity minus the
+            // buffer. RESERVED counts as used — a held slot is promised to someone, and handing it
+            // to a walk-in is exactly the failure a booking is supposed to prevent.
+            long totalSlots = slotRepository.count();
+            long occupiedSlots = slotRepository.countByStatus(SlotStatus.OCCUPIED)
+                    + slotRepository.countByStatus(SlotStatus.RESERVED);
+            long effectiveCapacity =
+                    totalSlots - (long) Math.ceil(totalSlots * capacityBufferPercent / 100.0);
+            if (occupiedSlots >= effectiveCapacity) {
+                throw new ConflictException("BR-002-5: parking full (%d/%d occupied+reserved, buffer %d%%)"
+                        .formatted(occupiedSlots, totalSlots, capacityBufferPercent));
+            }
+            slot = slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
+                    .orElseThrow(() -> new ConflictException("BR-002-5: parking full — no empty slot"));
         }
-        Slot slot = slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
-                .orElseThrow(() -> new ConflictException("BR-002-5: parking full — no empty slot"));
 
         Session session = sessionRepository.save(Session.builder()
                 .plateNumber(plate).slotId(slot.getId()).entryGateId(gate.getId())
                 .entryTime(entryTime).status(SessionStatus.ACTIVE)
                 .entryImageRef(entryImageRef).build());
-        // BR-003-2: EMPTY -> OCCUPIED.
+        // BR-003-2: EMPTY (or the driver's RESERVED slot) -> OCCUPIED.
         slot.setStatus(SlotStatus.OCCUPIED);
         slot.setCurrentSessionId(session.getId());
         slotRepository.save(slot);
+        hold.ifPresent(reservation -> reservationService.markFulfilled(reservation, session.getId()));
 
         // BR-006: record + reflect the OPEN command (barrier auto-closes per BR-006-2 downstream).
         gateLogRepository.save(GateLog.builder()

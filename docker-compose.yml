@@ -271,13 +271,17 @@ services:
   # --------------------------------------------------------------- monitoring
   # Host CPU/RAM/disk/network metrics. On Docker Desktop the "host" is the Linux VM,
   # not Windows — metrics reflect the VM, which is still useful for the stack's own load.
+  # NOTE: mounted plain `ro`, not `ro,rslave`. Docker Desktop's VM does not mount `/` as shared or
+  # slave, so `rslave` fails the whole `docker compose up` with "path / is mounted on / but it is
+  # not a shared or slave mount". The cost is that mounts appearing after start are not picked up —
+  # irrelevant here, and not worth breaking the one command that brings the stack up.
   node-exporter:
     image: prom/node-exporter:v1.8.0
     container_name: node-exporter
     command:
       - '--path.rootfs=/host'
     volumes:
-      - '/:/host:ro,rslave'
+      - '/:/host:ro'
     ports:
       - "${NODE_EXPORTER_PORT:-9100}:9100"
     networks: [parking-net]

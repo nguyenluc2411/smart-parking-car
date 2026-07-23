@@ -30,13 +30,16 @@ export interface AuthResponse {
 }
 
 // ─── Slots ────────────────────────────────────────────────
-export type SlotStatus = "EMPTY" | "OCCUPIED" | "MAINTENANCE";
+export type SlotStatus = "EMPTY" | "OCCUPIED" | "RESERVED" | "MAINTENANCE";
 
 export interface SlotAvailability {
   totalSlots: number;
   occupiedSlots: number;
+  /** Held for a driver's booking (BR-009); unavailable to a walk-in. */
+  reservedSlots: number;
   emptySlots: number;
   maintenanceSlots: number;
+  /** (occupied + reserved) / total — a held slot cannot take a car, so it counts as used. */
   occupancyRate: number;
 }
 
@@ -46,6 +49,9 @@ export interface Slot {
   zone: string;
   status: SlotStatus;
   currentSessionId: string | null;
+  /** Position on the zone map (BR-003-6); null for slots created before the map existed. */
+  gridRow: number | null;
+  gridCol: number | null;
 }
 
 export interface CreateSlotRequest {
@@ -187,7 +193,9 @@ export interface Alert {
 
 // ─── Billing ──────────────────────────────────────────────
 export type InvoiceStatus = "PENDING" | "PAID" | "WAIVED";
-export type PaymentMethod = "CASH" | "QR_CODE";
+// ONLINE = gate self-pay settled via PayOS/MoMo gateway (BillingServiceImpl.settleOnlinePaid).
+// CASH_OFFLINE = cash taken by hand during a power cut, keyed in later (BR-005-7).
+export type PaymentMethod = "CASH" | "QR_CODE" | "ONLINE" | "CASH_OFFLINE";
 
 export interface Invoice {
   invoiceId: string;
@@ -201,6 +209,11 @@ export interface Invoice {
   overnightApplied: boolean;
   amount: number;
   status: InvoiceStatus;
+  // Only populated by GET /billing/sessions/{sessionId} (single-invoice detail) — the rate
+  // actually applied to this invoice (BR-004-5 traceability), not whatever is effective now.
+  peakMultiplier?: number;
+  overnightFlat?: number;
+  minCharge?: number;
 }
 
 export interface PaymentRequest {
@@ -242,6 +255,29 @@ export interface UpdateRateRequest {
   minCharge: number;
 }
 
+/** One row of `collected.byMethod` — money actually taken, keyed on when it was received. */
+export interface MethodRevenue {
+  method: PaymentMethod;
+  amount: number;
+  count: number;
+}
+
+/**
+ * BR-005-8: what was actually collected in the period, split cash vs gateway.
+ *
+ * `total` deliberately does NOT equal `totalRevenue`: that one counts invoices for cars that left
+ * in the period (including unpaid ones), this one counts payments by `paid_at` — including outage
+ * cash taken days earlier and keyed in now. The gap between them is the thing worth looking at.
+ */
+export interface CollectionSummary {
+  /** CASH + CASH_OFFLINE — what an operator's till is counted against. */
+  cashTotal: number;
+  /** QR_CODE + ONLINE — money that never passed through anyone's hands. */
+  gatewayTotal: number;
+  total: number;
+  byMethod: MethodRevenue[];
+}
+
 export interface DailyReport {
   date: string;
   totalSessions: number;
@@ -249,6 +285,7 @@ export interface DailyReport {
   peakSessions: number;
   avgDurationMinutes: number;
   revenueByHour: { hour: number; revenue: number; sessions: number }[];
+  collected: CollectionSummary;
 }
 
 export interface MonthlyReport {
@@ -259,6 +296,7 @@ export interface MonthlyReport {
   growthRate: number;
   avgDailyRevenue: number;
   revenueByDay: { date: string; revenue: number }[];
+  collected: CollectionSummary;
 }
 
 // ─── Users ────────────────────────────────────────────────

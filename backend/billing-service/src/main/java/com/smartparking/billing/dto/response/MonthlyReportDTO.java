@@ -11,7 +11,9 @@ public record MonthlyReportDTO(
         BigDecimal prevMonthRevenue,
         double growthRate,
         BigDecimal avgDailyRevenue,
-        List<DayRevenue> revenueByDay
+        List<DayRevenue> revenueByDay,
+        /** Collected: payments stamped this month, split cash vs gateway. */
+        CollectionSummaryDTO collected
 ) {
     public record DayRevenue(String date, BigDecimal revenue) {
     }

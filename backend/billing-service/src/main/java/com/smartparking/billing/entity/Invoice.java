@@ -68,6 +68,31 @@ public class Invoice {
     @Column(name = "amount", nullable = false)
     private BigDecimal amount;
 
+    // --- BR-004 breakdown (V6): the numbers a receipt needs to explain `amount` line by line. ---
+    // Snapshotted at issue time, so a later change to the block size or tariff never rewrites the
+    // history of an invoice that was already handed to a driver.
+
+    @Column(name = "block_minutes")
+    private Integer blockMinutes;
+
+    @Column(name = "normal_blocks")
+    private Long normalBlocks;
+
+    @Column(name = "peak_blocks")
+    private Long peakBlocks;
+
+    @Column(name = "overnight_nights")
+    private Long overnightNights;
+
+    @Column(name = "peak_multiplier")
+    private BigDecimal peakMultiplier;
+
+    @Column(name = "overnight_flat")
+    private BigDecimal overnightFlat;
+
+    @Column(name = "min_charge_applied")
+    private Boolean minChargeApplied;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private InvoiceStatus status;

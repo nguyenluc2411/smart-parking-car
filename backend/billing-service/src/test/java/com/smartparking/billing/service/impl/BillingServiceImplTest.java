@@ -91,7 +91,7 @@ class BillingServiceImplTest {
         ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
         Rate rate = rate();
         FeeCalculation fee = new FeeCalculation(2700, 45, rate.getRatePerMin(),
-                false, false, new BigDecimal("12000.00"));
+                false, false, new BigDecimal("12000.00"), 30, 2L, 0L, 0L, false);
 
         when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
         when(rateRepository.findEffective(any(), any())).thenReturn(List.of(rate));
@@ -121,7 +121,7 @@ class BillingServiceImplTest {
         ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
         Rate rate = rate();
         FeeCalculation fee = new FeeCalculation(2700, 45, rate.getRatePerMin(),
-                false, false, new BigDecimal("12000.00"));
+                false, false, new BigDecimal("12000.00"), 30, 2L, 0L, 0L, false);
 
         when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
         when(rateRepository.findEffective(any(), any())).thenReturn(List.of(rate));
@@ -168,13 +168,64 @@ class BillingServiceImplTest {
         verify(outboxEventRepository, never()).save(any());
     }
 
+    /**
+     * BR-004-5: "Phí tính tại thời điểm xe ra" — if the rate is changed by an admin while the car
+     * is still parked, the invoice must be priced with the rate effective at EXIT time, not the
+     * one effective when the car entered. There is no proration: the whole stay is billed at a
+     * single rate (whichever governs at exit).
+     */
+    @Test
+    void handleSessionClosed_rateChangedDuringStay_usesRateEffectiveAtExit() throws Exception {
+        ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
+        OffsetDateTime entryTime = OffsetDateTime.parse("2026-06-20T03:00:00Z"); // rateA was effective
+        OffsetDateTime exitTime = OffsetDateTime.parse("2026-06-20T03:45:00Z");  // rateB now effective
+        SessionClosedEventDTO event = new SessionClosedEventDTO(
+                "evt-closed", SESSION_ID, PLATE, entryTime, exitTime, 2700, false);
+
+        Rate rateB = Rate.builder()
+                .id(UUID.randomUUID())
+                .ratePerMin(new BigDecimal("300.00"))
+                .peakMultiplier(new BigDecimal("1.5"))
+                .overnightFlat(new BigDecimal("30000.00"))
+                .minCharge(new BigDecimal("5000.00"))
+                .build();
+        FeeCalculation feeUnderRateB = new FeeCalculation(2700, 45, rateB.getRatePerMin(),
+                false, false, new BigDecimal("18000.00"), 30, 2L, 0L, 0L, false);
+
+        when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
+        // Admin updated the rate mid-stay: findEffective(exitTime) must resolve to rateB, the one
+        // effective NOW, regardless of what was effective back at entryTime (rateA is never queried).
+        when(rateRepository.findEffective(eq(exitTime), any())).thenReturn(List.of(rateB));
+        when(feeCalculator.calculate(eq(entryTime), eq(exitTime), eq(rateB), any()))
+                .thenReturn(feeUnderRateB);
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> {
+            Invoice i = inv.getArgument(0);
+            i.setId(UUID.randomUUID());
+            return i;
+        });
+        when(invoiceMapper.toInvoiceCalculatedEvent(any(Invoice.class)))
+                .thenReturn(InvoiceCalculatedEventDTO.builder()
+                        .sessionId(SESSION_ID).plateNumber(PLATE).status(InvoiceStatus.PENDING).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        service.handleSessionClosed(event);
+
+        verify(rateRepository).findEffective(eq(exitTime), any());
+        ArgumentCaptor<Invoice> captor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository).save(captor.capture());
+        // Priced with rateB (300/min), not rateA (200/min) — the whole 45-min stay, no proration.
+        assertEquals(0, captor.getValue().getRatePerMin().compareTo(rateB.getRatePerMin()));
+        assertEquals(0, captor.getValue().getAmount().compareTo(new BigDecimal("18000.00")));
+    }
+
     // ----------------------------------------------------------------------------------------
     // listInvoices (operator/admin)
     // ----------------------------------------------------------------------------------------
 
     private InvoiceResponseDTO invoiceResponse(Invoice i) {
         return new InvoiceResponseDTO(i.getId(), i.getSessionId(), i.getPlateNumber(),
-                null, null, 0, BigDecimal.ZERO, false, false, i.getAmount(), i.getStatus());
+                null, null, 0, BigDecimal.ZERO, false, false, i.getAmount(), i.getStatus(),
+                null, null, null, null);
     }
 
     @Test
@@ -222,7 +273,14 @@ class BillingServiceImplTest {
     }
 
     private PayRequestDTO payRequest(String amount) {
-        return new PayRequestDTO(PaymentMethod.CASH, new BigDecimal(amount), "khách trả tròn");
+        return new PayRequestDTO(PaymentMethod.CASH, new BigDecimal(amount), null, null,
+                "khách trả tròn");
+    }
+
+    /** BR-005-7: cash taken during an outage, keyed in afterwards against paper voucher {@code no}. */
+    private PayRequestDTO offlineRequest(String amount, String no, OffsetDateTime paidAt) {
+        return new PayRequestDTO(PaymentMethod.CASH_OFFLINE, new BigDecimal(amount), no, paidAt,
+                "thu tay lúc mất điện");
     }
 
     @Test
@@ -231,7 +289,7 @@ class BillingServiceImplTest {
         Invoice invoice = pendingInvoice();
         UUID operator = UUID.randomUUID();
 
-        when(invoiceRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID)).thenReturn(Optional.of(invoice));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
             Payment p = inv.getArgument(0);
             p.setId(UUID.randomUUID());
@@ -250,7 +308,7 @@ class BillingServiceImplTest {
 
     @Test
     void pay_invoiceNotFound_throws() {
-        when(invoiceRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.empty());
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID)).thenReturn(Optional.empty());
 
         assertThrows(InvoiceNotFoundException.class,
                 () -> service.pay(SESSION_ID, payRequest("12000.00"), UUID.randomUUID()));
@@ -263,7 +321,7 @@ class BillingServiceImplTest {
     void pay_alreadyPaid_throwsInvalidPayment() {
         Invoice invoice = pendingInvoice();
         invoice.setStatus(InvoiceStatus.PAID);
-        when(invoiceRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID)).thenReturn(Optional.of(invoice));
 
         assertThrows(InvalidPaymentException.class,
                 () -> service.pay(SESSION_ID, payRequest("12000.00"), UUID.randomUUID()));
@@ -273,10 +331,158 @@ class BillingServiceImplTest {
 
     @Test
     void pay_insufficientAmount_throwsInvalidPayment() {
-        when(invoiceRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(pendingInvoice()));
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID)).thenReturn(Optional.of(pendingInvoice()));
 
         assertThrows(InvalidPaymentException.class,
                 () -> service.pay(SESSION_ID, payRequest("5000.00"), UUID.randomUUID()));
+
+        verify(paymentRepository, never()).save(any());
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // BR-004-5 — tariff change while the car is still parked
+    // ----------------------------------------------------------------------------------------
+
+    /**
+     * A rate edited mid-stay must not be picked by entry time: the invoice is priced with the rate
+     * effective at EXIT, for the whole stay. Documented consequence — a car that entered under the
+     * old price pays the new one for every block, including the hours before the change.
+     */
+    @Test
+    void handleSessionClosed_ratePickedAtExitTimeNotEntryTime() throws Exception {
+        ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
+        Rate newRate = rate();   // the rate that became effective while the car sat in the lot
+        FeeCalculation fee = new FeeCalculation(2700, 45, newRate.getRatePerMin(),
+                false, false, new BigDecimal("18000.00"), 30, 2L, 0L, 0L, false);
+
+        when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
+        when(rateRepository.findEffective(any(), any())).thenReturn(List.of(newRate));
+        when(feeCalculator.calculate(any(), any(), eq(newRate), any())).thenReturn(fee);
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(invoiceMapper.toInvoiceCalculatedEvent(any(Invoice.class)))
+                .thenReturn(InvoiceCalculatedEventDTO.builder()
+                        .sessionId(SESSION_ID).plateNumber(PLATE).status(InvoiceStatus.PENDING).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        SessionClosedEventDTO closed = event();
+        service.handleSessionClosed(closed);
+
+        ArgumentCaptor<OffsetDateTime> at = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(rateRepository).findEffective(at.capture(), any());
+        assertEquals(closed.exitTime(), at.getValue());
+        org.junit.jupiter.api.Assertions.assertNotEquals(closed.entryTime(), at.getValue());
+    }
+
+    /** The receipt lines (BR-004) must be snapshotted onto the invoice, not recomputed later. */
+    @Test
+    void handleSessionClosed_storesBreakdownAndTariffSnapshot() throws Exception {
+        ReflectionTestUtils.setField(service, "invoiceCalculatedTopic", "billing.invoice.calculated");
+        Rate rate = rate();
+        FeeCalculation fee = new FeeCalculation(10800, 180, rate.getRatePerMin(),
+                true, false, new BigDecimal("48000.00"), 30, 2L, 4L, 0L, false);
+
+        when(invoiceRepository.existsBySessionId(SESSION_ID)).thenReturn(false);
+        when(rateRepository.findEffective(any(), any())).thenReturn(List.of(rate));
+        when(feeCalculator.calculate(any(), any(), eq(rate), any())).thenReturn(fee);
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(invoiceMapper.toInvoiceCalculatedEvent(any(Invoice.class)))
+                .thenReturn(InvoiceCalculatedEventDTO.builder()
+                        .sessionId(SESSION_ID).plateNumber(PLATE).status(InvoiceStatus.PENDING).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        service.handleSessionClosed(event());
+
+        ArgumentCaptor<Invoice> captor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository).save(captor.capture());
+        Invoice saved = captor.getValue();
+        assertEquals(30, saved.getBlockMinutes());
+        assertEquals(2L, saved.getNormalBlocks());
+        assertEquals(4L, saved.getPeakBlocks());
+        assertEquals(0L, saved.getOvernightNights());
+        // Tariff snapshot — so the receipt still reconciles after the rate table is edited.
+        assertEquals(0, saved.getPeakMultiplier().compareTo(rate.getPeakMultiplier()));
+        assertEquals(0, saved.getOvernightFlat().compareTo(rate.getOvernightFlat()));
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // pay — CASH_OFFLINE (BR-005-7 power outage)
+    // ----------------------------------------------------------------------------------------
+
+    /** Invoice for a car that left at {@code exitTime} — outage cash is keyed in after that. */
+    private Invoice pendingInvoiceExitedAt(OffsetDateTime exitTime) {
+        Invoice invoice = pendingInvoice();
+        invoice.setExitTime(exitTime);
+        return invoice;
+    }
+
+    @Test
+    void payOffline_recordsVoucherAndActualPaidAt() throws Exception {
+        ReflectionTestUtils.setField(service, "paymentCompletedTopic", "billing.payment.completed");
+        OffsetDateTime exit = OffsetDateTime.now().minusHours(3);
+        OffsetDateTime tookCash = exit.plusMinutes(2);
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID))
+                .thenReturn(Optional.of(pendingInvoiceExitedAt(exit)));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        PaymentResponseDTO resp = service.pay(
+                SESSION_ID, offlineRequest("12000.00", "PV-000123", tookCash), UUID.randomUUID());
+
+        assertEquals(InvoiceStatus.PAID, resp.status());
+        ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).save(captor.capture());
+        Payment saved = captor.getValue();
+        assertEquals(PaymentMethod.CASH_OFFLINE, saved.getMethod());
+        assertEquals("PV-000123", saved.getOfflineVoucherNo());
+        // The stored time is when the cash changed hands, not when it was keyed in.
+        assertEquals(tookCash, saved.getPaidAt());
+    }
+
+    @Test
+    void payOffline_withoutVoucher_throwsInvalidPayment() {
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID))
+                .thenReturn(Optional.of(pendingInvoiceExitedAt(OffsetDateTime.now().minusHours(1))));
+
+        assertThrows(InvalidPaymentException.class, () -> service.pay(SESSION_ID,
+                offlineRequest("12000.00", "  ", OffsetDateTime.now()), UUID.randomUUID()));
+
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    void payOffline_paidBeforeCarLeft_throwsInvalidPayment() {
+        OffsetDateTime exit = OffsetDateTime.now().minusHours(1);
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID))
+                .thenReturn(Optional.of(pendingInvoiceExitedAt(exit)));
+
+        assertThrows(InvalidPaymentException.class, () -> service.pay(SESSION_ID,
+                offlineRequest("12000.00", "PV-000124", exit.minusMinutes(1)), UUID.randomUUID()));
+
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    void payOffline_futurePaidAt_throwsInvalidPayment() {
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID))
+                .thenReturn(Optional.of(pendingInvoiceExitedAt(OffsetDateTime.now().minusHours(1))));
+
+        assertThrows(InvalidPaymentException.class, () -> service.pay(SESSION_ID,
+                offlineRequest("12000.00", "PV-000125", OffsetDateTime.now().plusHours(1)),
+                UUID.randomUUID()));
+
+        verify(paymentRepository, never()).save(any());
+    }
+
+    /** A live payment must be server-stamped: backdating it would let an operator hide takings. */
+    @Test
+    void pay_liveMethodWithOfflineFields_throwsInvalidPayment() {
+        when(invoiceRepository.findBySessionIdForUpdate(SESSION_ID)).thenReturn(Optional.of(pendingInvoice()));
+
+        PayRequestDTO backdatedCash = new PayRequestDTO(PaymentMethod.CASH,
+                new BigDecimal("12000.00"), null, OffsetDateTime.now().minusDays(2), null);
+
+        assertThrows(InvalidPaymentException.class,
+                () -> service.pay(SESSION_ID, backdatedCash, UUID.randomUUID()));
 
         verify(paymentRepository, never()).save(any());
     }

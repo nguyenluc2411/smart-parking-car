@@ -4,6 +4,7 @@ package com.smartparking.parking.dto.response;
 public record SlotResyncResultDTO(
         long totalSlots,
         long occupiedSlots,
+        long reservedSlots,
         long emptySlots,
         long maintenanceSlots,
         int correctedSlots

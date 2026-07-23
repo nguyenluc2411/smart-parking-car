@@ -57,6 +57,24 @@ class FrameStorage:
         base = key[:-len(".jpg")] if key.endswith(".jpg") else key
         return f"{base}.plate.jpg"
 
+    @staticmethod
+    def _overview_key(key: str) -> str:
+        """Sibling key for the wide shot: ``frames/.../IN_xxx.jpg`` -> ``..._xxx.overview.jpg``."""
+        base = key[:-len(".jpg")] if key.endswith(".jpg") else key
+        return f"{base}.overview.jpg"
+
+    def put_overview(self, image_bytes: bytes, primary_key: str) -> str | None:
+        """Store the second camera's wide shot next to an existing detection frame (BR-001-6).
+
+        Keyed off the primary object rather than tracked in the database: the plate close-up
+        already uses this sibling convention, so a viewer derives all three images from the one
+        ``image_ref`` a session carries and no schema has to change. Best-effort like everything
+        else here — a missing overview must never cost us the detection.
+        """
+        if not self.enabled or not image_bytes or not primary_key:
+            return None
+        return self._put(self._overview_key(primary_key), image_bytes)
+
     def _put(self, key: str, image_bytes: bytes) -> str | None:
         try:
             client = self._ensure_client()

@@ -46,6 +46,16 @@ public class Slot {
     @Column(name = "current_session_id")
     private UUID currentSessionId;
 
+    /**
+     * Position within the zone's grid (BR-003-6), row-major from the top-left. Nullable: a slot
+     * created before the map existed still works, it just has no place to be drawn yet.
+     */
+    @Column(name = "grid_row")
+    private Integer gridRow;
+
+    @Column(name = "grid_col")
+    private Integer gridCol;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 

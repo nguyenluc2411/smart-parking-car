@@ -38,6 +38,7 @@ import com.smartparking.billing.service.FeeCalculator;
 import com.smartparking.billing.service.MoMoGateway;
 import com.smartparking.billing.service.PayOsGateway;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -123,6 +124,15 @@ public class BillingServiceImpl implements BillingService {
                 .overnightApplied(fee.overnightApplied())
                 .amount(amount)
                 .status(status)
+                // BR-004 breakdown + the tariff it was priced with, so the receipt stays
+                // explainable after the rate table moves on.
+                .blockMinutes(fee.blockMinutes())
+                .normalBlocks(fee.normalBlocks())
+                .peakBlocks(fee.peakBlocks())
+                .overnightNights(fee.overnightNights())
+                .peakMultiplier(rate.getPeakMultiplier())
+                .overnightFlat(rate.getOvernightFlat())
+                .minChargeApplied(fee.minChargeApplied())
                 .build());
 
         recordOutbox(invoiceCalculatedTopic, "Invoice", invoice.getSessionId(),
@@ -142,13 +152,14 @@ public class BillingServiceImpl implements BillingService {
         Invoice invoice = invoiceRepository.findBySessionId(sessionId)
                 .orElseThrow(() -> new InvoiceNotFoundException(
                         "No invoice for sessionId=" + sessionId));
-        return invoiceMapper.toInvoiceResponse(invoice);
+        return invoiceMapper.toInvoiceResponse(invoice, rateAppliedTo(invoice));
     }
 
     @Override
     @Transactional
     public PaymentResponseDTO pay(UUID sessionId, PayRequestDTO request, UUID operatorId) {
-        Invoice invoice = invoiceRepository.findBySessionId(sessionId)
+        // BR-005-2: lock the row — an online settlement can land while the operator takes cash.
+        Invoice invoice = invoiceRepository.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new InvoiceNotFoundException(
                         "No invoice for sessionId=" + sessionId));
 
@@ -162,6 +173,7 @@ public class BillingServiceImpl implements BillingService {
                     "Amount paid %s is less than invoice amount %s"
                             .formatted(request.amountPaid(), invoice.getAmount()));
         }
+        validateOfflineFields(request, invoice);
 
         Payment payment = paymentRepository.save(Payment.builder()
                 .invoiceId(invoice.getId())
@@ -169,6 +181,8 @@ public class BillingServiceImpl implements BillingService {
                 .amountPaid(request.amountPaid())
                 .payerType(PayerType.OPERATOR)
                 .receivedBy(operatorId)
+                .offlineVoucherNo(request.offlineVoucherNo())
+                .paidAt(request.paidAt())          // null -> @PrePersist stamps now (live payments)
                 .note(request.note())
                 .build());
 
@@ -177,6 +191,11 @@ public class BillingServiceImpl implements BillingService {
 
         recordOutbox(paymentCompletedTopic, "Payment", invoice.getId(),
                 buildPaymentCompleted(invoice, payment));
+
+        // BR-005-9: settling via one channel (here, an operator-recorded CASH or QR_CODE payment)
+        // must cancel any PayOS order still outstanding for this invoice, so the driver can't also
+        // complete a real transfer on an already-collected invoice.
+        cancelOutstandingPayOs(invoice, "Da thanh toan " + payment.getMethod());
 
         log.info("Payment confirmed: invoiceId={}, sessionId={}, method={}, amountPaid={}, by={}",
                 invoice.getId(), sessionId, payment.getMethod(), payment.getAmountPaid(), operatorId);
@@ -231,7 +250,7 @@ public class BillingServiceImpl implements BillingService {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new InvoiceNotFoundException("No invoice with id=" + invoiceId));
         requireOwnership(invoice, plates);
-        return invoiceMapper.toInvoiceResponse(invoice);
+        return invoiceMapper.toInvoiceResponse(invoice, rateAppliedTo(invoice));
     }
 
     @Override
@@ -263,6 +282,10 @@ public class BillingServiceImpl implements BillingService {
 
         recordOutbox(paymentCompletedTopic, "Payment", invoice.getId(),
                 buildPaymentCompleted(invoice, payment));
+
+        // BR-005-9: this app-side self-pay is a distinct channel from a live PayOS QR — cancel any
+        // outstanding one so the driver can't also complete that transfer on an already-paid invoice.
+        cancelOutstandingPayOs(invoice, "Da thanh toan qua app");
 
         log.info("Driver online payment: invoiceId={}, sessionId={}, amount={}, driverId={}",
                 invoice.getId(), invoice.getSessionId(), payment.getAmountPaid(), driverId);
@@ -334,8 +357,8 @@ public class BillingServiceImpl implements BillingService {
             return momoStatus(invoice, orderId, "Not paid yet (MoMo: " + query.message() + ")");
         }
 
-        settleMoMoPaid(invoice, query.transId() == null ? null : String.valueOf(query.transId()),
-                "MoMo gate payment, orderId=" + orderId);
+        settleOnlinePaid(invoice, query.transId() == null ? null : String.valueOf(query.transId()),
+                "MoMo gate payment, orderId=" + orderId, false);
         log.info("MoMo payment reconciled PAID (poll): invoiceId={}, sessionId={}, transId={}",
                 invoice.getId(), sessionId, query.transId());
         return momoStatus(invoice, orderId, "PAID");
@@ -396,7 +419,7 @@ public class BillingServiceImpl implements BillingService {
         }
 
         settleOnlinePaid(invoice, payOsGateway.providerRef(orderCode),
-                "PayOS gate payment, orderCode=" + orderCode);
+                "PayOS gate payment, orderCode=" + orderCode, true);
         log.info("PayOS payment reconciled PAID (poll): invoiceId={}, sessionId={}, orderCode={}",
                 invoice.getId(), sessionId, orderCode);
         return payosStatus(invoice, orderCode, "PAID");
@@ -438,7 +461,7 @@ public class BillingServiceImpl implements BillingService {
         String providerRef = verified.getPaymentLinkId() != null
                 ? verified.getPaymentLinkId()
                 : String.valueOf(orderCode);
-        settleOnlinePaid(invoice, providerRef, "PayOS webhook, orderCode=" + orderCode);
+        settleOnlinePaid(invoice, providerRef, "PayOS webhook, orderCode=" + orderCode, true);
         log.info("PayOS webhook settled PAID: invoiceId={}, sessionId={}, orderCode={}",
                 invoice.getId(), invoice.getSessionId(), orderCode);
         return webhookAck("success");
@@ -479,13 +502,20 @@ public class BillingServiceImpl implements BillingService {
             return;
         }
         settleOnlinePaid(invoice, ipn.transId() == null ? null : String.valueOf(ipn.transId()),
-                "MoMo IPN, orderId=" + orderId);
+                "MoMo IPN, orderId=" + orderId, false);
         log.info("MoMo IPN settled PAID (real-time push): invoiceId={}, sessionId={}, transId={}",
                 invoiceId, invoice.getSessionId(), ipn.transId());
     }
 
-    /** Mark a PENDING invoice PAID via online gateway + emit payment.completed (MoMo/PayOS). */
-    private void settleOnlinePaid(Invoice invoice, String providerRef, String note) {
+    /**
+     * Mark a PENDING invoice PAID via online gateway + emit payment.completed (MoMo/PayOS).
+     *
+     * @param viaPayOs true when PayOS itself is the settling channel (checkPayOsPayment/webhook) —
+     *                 in that case the invoice's own {@code payosOrderCode} was just paid, so it must
+     *                 NOT be cancelled. When false (MoMo poll/IPN), any outstanding PayOS order for
+     *                 this invoice is cancelled (BR-005-9) since the other channel already paid.
+     */
+    private void settleOnlinePaid(Invoice invoice, String providerRef, String note, boolean viaPayOs) {
         Invoice locked = invoiceRepository.findByIdForUpdate(invoice.getId()).orElse(null);
         if (locked == null) {
             log.warn("settleOnlinePaid: invoice {} not found", invoice.getId());
@@ -508,11 +538,17 @@ public class BillingServiceImpl implements BillingService {
         invoiceRepository.save(locked);
         recordOutbox(paymentCompletedTopic, "Payment", locked.getId(),
                 buildPaymentCompleted(locked, payment));
+
+        if (!viaPayOs) {
+            cancelOutstandingPayOs(locked, "Da thanh toan qua MoMo");
+        }
     }
 
-    /** @deprecated use {@link #settleOnlinePaid} — kept as alias for MoMo call sites in this class. */
-    private void settleMoMoPaid(Invoice invoice, String providerRef, String note) {
-        settleOnlinePaid(invoice, providerRef, note);
+    /** BR-005-9: cancel the invoice's outstanding PayOS order, if any — best-effort, never throws. */
+    private void cancelOutstandingPayOs(Invoice invoice, String reason) {
+        if (invoice.getPayosOrderCode() != null) {
+            payOsGateway.cancelPayment(invoice.getPayosOrderCode(), reason);
+        }
     }
 
     private MoMoPaymentResponseDTO momoStatus(Invoice invoice, String orderId, String message) {
@@ -585,6 +621,51 @@ public class BillingServiceImpl implements BillingService {
                 .status(invoice.getStatus())
                 .paidAt(payment.getPaidAt())
                 .build();
+    }
+
+    /**
+     * BR-005-7: the outage-only fields belong to CASH_OFFLINE and nothing else. Live payments are
+     * stamped by the server, so accepting a caller-supplied {@code paidAt} there would let an
+     * operator backdate takings; and a CASH_OFFLINE row without a voucher serial cannot be
+     * reconciled against the paper book, which is the only control on outage cash.
+     */
+    private void validateOfflineFields(PayRequestDTO request, Invoice invoice) {
+        boolean offline = request.method() == PaymentMethod.CASH_OFFLINE;
+        String voucher = request.offlineVoucherNo();
+
+        if (!offline) {
+            if (voucher != null || request.paidAt() != null) {
+                throw new InvalidPaymentException(
+                        "offlineVoucherNo/paidAt are only accepted for CASH_OFFLINE (method=%s)"
+                                .formatted(request.method()));
+            }
+            return;
+        }
+
+        if (voucher == null || voucher.isBlank()) {
+            throw new InvalidPaymentException("CASH_OFFLINE requires the paper voucher serial");
+        }
+        if (request.paidAt() == null) {
+            throw new InvalidPaymentException(
+                    "CASH_OFFLINE requires paidAt — the time the cash was actually taken");
+        }
+        if (request.paidAt().isAfter(OffsetDateTime.now())) {
+            throw new InvalidPaymentException("paidAt is in the future: " + request.paidAt());
+        }
+        // The driver cannot have paid before their car left the barrier.
+        if (request.paidAt().isBefore(invoice.getExitTime())) {
+            throw new InvalidPaymentException(
+                    "paidAt %s is before the session exit time %s"
+                            .formatted(request.paidAt(), invoice.getExitTime()));
+        }
+    }
+
+    /** The exact {@link Rate} that priced this invoice (BR-004-5 traceability) — never the current one. */
+    private Rate rateAppliedTo(Invoice invoice) {
+        return rateRepository.findById(invoice.getRateId())
+                .orElseThrow(() -> new RateNotFoundException(
+                        "Rate %s referenced by invoice %s not found".formatted(
+                                invoice.getRateId(), invoice.getId())));
     }
 
     private Rate findEffectiveRate(SessionClosedEventDTO event) {

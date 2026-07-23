@@ -37,6 +37,14 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
     @Query("SELECT i FROM Invoice i WHERE i.payosOrderCode = :orderCode")
     Optional<Invoice> findByPayosOrderCodeForUpdate(@Param("orderCode") Long orderCode);
 
+    /**
+     * BR-005-2: same lock for the operator (cash/QR-at-gate) path. Without it an incoming MoMo IPN
+     * and an operator taking cash can both read PENDING and both settle the same invoice.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM Invoice i WHERE i.sessionId = :sessionId")
+    Optional<Invoice> findBySessionIdForUpdate(@Param("sessionId") UUID sessionId);
+
     /** Invoices whose exit falls in [from, to) — for daily/monthly revenue reports. */
     @Query("SELECT i FROM Invoice i WHERE i.exitTime >= :from AND i.exitTime < :to")
     List<Invoice> findByExitTimeInRange(@Param("from") OffsetDateTime from,

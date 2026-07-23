@@ -218,12 +218,16 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
   "data": {
     "totalSlots": 50,
     "occupiedSlots": 32,
-    "emptySlots": 18,
+    "reservedSlots": 8,
+    "emptySlots": 10,
     "maintenanceSlots": 0,
-    "occupancyRate": 0.64
+    "occupancyRate": 0.80
   }
 }
 ```
+**`occupancyRate` tính cả `reservedSlots` là đã dùng** (`(occupied + reserved) / total`, BR-009-4):
+slot đang giữ chỗ không nhận được xe vãng lai, nên đồng hồ báo "còn nửa bãi" trong khi cổng đang
+từ chối xe là sai. `emptySlots` là số chỗ **thực sự** còn nhận xe vào ngay.
 
 ### POST /api/v1/slots/resync
 **Auth:** ADMIN  
@@ -235,12 +239,16 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
   "data": {
     "totalSlots": 50,
     "occupiedSlots": 32,
-    "emptySlots": 18,
+    "reservedSlots": 8,
+    "emptySlots": 10,
     "maintenanceSlots": 0,
     "correctedSlots": 3
   }
 }
 ```
+> Slot đang có lượt đặt `HELD` **không bị resync đụng vào** (BR-003-4b) — lượt đặt chưa có session
+> ACTIVE nào, nên luật chung sẽ giải phóng nhầm chỗ đã hứa cho tài xế. Cờ trạng thái trôi về `EMPTY`
+> thì được sửa **ngược lại** thành `RESERVED` và tính vào `correctedSlots`.
 
 ### POST /api/v1/slots
 **Auth:** ADMIN  
@@ -253,7 +261,8 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
 
 ### DELETE /api/v1/slots/{id}
 **Auth:** ADMIN  
-**Response 204:** No Content. 409 nếu slot đang `OCCUPIED` (có xe); 404 nếu không tồn tại.
+**Response 204:** No Content. 409 nếu slot đang `OCCUPIED` (có xe) hoặc đang có lượt đặt `HELD`
+(BR-009-3b); 404 nếu không tồn tại.
 
 ### PATCH /api/v1/slots/{id}/status
 **Auth:** ADMIN  
@@ -262,11 +271,16 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
 ```json
 { "status": "MAINTENANCE" }
 ```
-**Response 200:** slot sau cập nhật. 409 nếu slot đang `OCCUPIED` hoặc `status` không hợp lệ.
+**Response 200:** slot sau cập nhật. 409 nếu slot đang `OCCUPIED`, slot **đang có lượt đặt `HELD`**
+(BR-009-3b), hoặc `status` không hợp lệ.
+> `RESERVED` **không đặt tay được** — nó chỉ do vòng đời đặt chỗ tạo ra (BR-009), nếu không sẽ có
+> slot mang cờ giữ chỗ mà chẳng có lượt đặt nào đứng sau. Ngược lại cũng vậy: slot đang được giữ thì
+> admin **không** đổi trạng thái / xóa / thu nhỏ zone chứa nó được, cho tới khi lượt đặt hết hạn
+> hoặc bị hủy.
 
 ### POST /api/v1/slots/provision
 **Auth:** ADMIN  
-**Mô tả:** Cấu hình nhanh một khu (zone): đặt khu có **đúng** `count` slot. Hệ thống tự sinh mã `{zone}01..{zone}NN`, tạo phần thiếu và xóa phần dư. **Không xóa slot đang có xe** — nếu việc giảm chạm vào slot `OCCUPIED` thì trả 409 và không đổi gì.  
+**Mô tả:** Cấu hình nhanh một khu (zone): đặt khu có **đúng** `count` slot. Hệ thống tự sinh mã `{zone}01..{zone}NN`, tạo phần thiếu và xóa phần dư. **Không xóa slot đang có xe hoặc đang có lượt đặt `HELD`** — nếu việc giảm chạm vào slot `OCCUPIED`/đang được giữ (BR-009-3b) thì trả 409 kèm danh sách mã slot và không đổi gì. Tọa độ lưới được xếp lại sau mỗi lần provision (BR-003-6).  
 **Request:**
 ```json
 { "zone": "A", "count": 50 }
@@ -317,10 +331,15 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
 {
   "success": true,
   "data": [
-    { "id": "uuid", "slotCode": "A01", "zone": "A", "status": "EMPTY", "currentSessionId": null }
+    { "id": "uuid", "slotCode": "A01", "zone": "A", "status": "EMPTY",
+      "currentSessionId": null, "gridRow": 0, "gridCol": 0 }
   ]
 }
 ```
+`status` ∈ `EMPTY | OCCUPIED | RESERVED | MAINTENANCE` (`RESERVED` = đang giữ cho một lượt đặt, BR-009).
+`gridRow`/`gridCol` là ô của slot trên bản đồ **zone** (BR-003-6), row-major từ góc trên-trái, 10
+slot/hàng — server tự gán và tự xếp lại khi zone thêm/xóa slot. `null` với slot tạo trước khi có bản
+đồ: client bỏ qua slot đó thay vì đoán vị trí.
 
 ### GET /api/v1/gates
 **Auth:** OPERATOR, ADMIN  
@@ -500,6 +519,10 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
 ```
 
 ### GET /api/v1/billing/sessions/{sessionId}
+**Mô tả:** Chi tiết 1 hóa đơn — dùng cho panel xem & thu tiền. Khác `GET /billing/invoices` (danh
+sách): endpoint này trả thêm `peakMultiplier`/`overnightFlat`/`minCharge` — đúng bảng giá (`rates`
+row qua `invoice.rate_id`) đã áp dụng cho hóa đơn này tại thời điểm tính phí, không phải bảng giá
+hiện hành (BR-004-5 traceability — vẫn đúng dù giá đã đổi sau đó).  
 **Response 200:**
 ```json
 {
@@ -515,10 +538,30 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
     "peakApplied": true,
     "overnightApplied": false,
     "amount": 50000,
-    "status": "PENDING"
+    "status": "PENDING",
+    "breakdown": {
+      "blockMinutes": 30,
+      "normal":    { "quantity": 2, "unitAmount": 6000,  "amount": 12000 },
+      "peak":      { "quantity": 4, "unitAmount": 9000,  "amount": 36000 },
+      "overnight": { "quantity": 0, "unitAmount": 30000, "amount": 0 },
+      "minChargeApplied": false
+    },
+    "peakMultiplier": 1.5,
+    "overnightFlat": 30000,
+    "minCharge": 5000
   }
 }
 ```
+**`breakdown` (BR-004):** các dòng tạo nên `amount`, để hiển thị bảng giá cho khách lúc thanh toán.
+`quantity` là số block 30′ với `normal`/`peak`, và số **đêm** với `overnight`. Số tiền từng dòng do
+server tính — client KHÔNG được tự nhân lại từ đơn giá. Giá trong `breakdown` là **bản chụp tại
+thời điểm phát hành**, nên hóa đơn cũ vẫn giải thích được sau khi admin đổi bảng giá.
+`breakdown = null` với hóa đơn phát hành trước migration V6 (không bịa số cho chúng).
+
+**`peakMultiplier`/`overnightFlat`/`minCharge`:** các **hằng số giá** đứng sau `amount` — trong khi
+`breakdown` nói *đã tính bao nhiêu block mỗi loại*. Chỉ có ở **detail 1 hóa đơn**; endpoint danh sách
+để `null` thay vì chịu N+1 truy vấn rate mỗi dòng. Lấy từ bản chụp trên hóa đơn nếu có (V6 trở đi),
+nếu không thì lấy từ dòng `rates` mà hóa đơn tham chiếu — **không bao giờ** lấy giá đang hiệu lực.
 
 ### POST /api/v1/billing/sessions/{sessionId}/pay
 **Auth:** OPERATOR, ADMIN  
@@ -530,6 +573,22 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
   "note": "Khách trả tròn"
 }
 ```
+`method`: `CASH` | `QR_CODE` | `CASH_OFFLINE` (BR-005-1, BR-005-7).
+
+**Thu tiền mặt lúc mất điện (`CASH_OFFLINE`, BR-005-7):** bắt buộc thêm `offlineVoucherNo` (số
+phiếu giấy) và `paidAt` (giờ THỰC nhận tiền, không phải giờ nhập máy):
+```json
+{
+  "method": "CASH_OFFLINE",
+  "amountPaid": 50000,
+  "offlineVoucherNo": "PV-000123",
+  "paidAt": "2026-07-22T21:40:00+07:00",
+  "note": "Thu tay lúc mất điện"
+}
+```
+`paidAt` phải nằm trong `[exit_time, hiện tại]`. Hai trường này **bị từ chối** với `CASH`/`QR_CODE`
+— thu trực tiếp luôn để server đóng dấu giờ, nhận giờ từ client sẽ cho phép ghi lùi ngày.
+
 **Response 200:**
 ```json
 {
@@ -537,6 +596,9 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
   "data": { "invoiceId": "uuid", "status": "PAID", "paidAt": "..." }
 }
 ```
+**Lỗi:** 409 `INVALID_PAYMENT` (hóa đơn không PENDING — đã thu rồi, KHÔNG thu lần hai) ·
+404 `INVOICE_NOT_FOUND`. Hóa đơn được đọc bằng `SELECT ... FOR UPDATE` và `payments.invoice_id` là
+UNIQUE, nên IPN cổng thanh toán và nhân viên thu tiền mặt chạy song song không thể cùng tất toán.
 
 ### POST /api/v1/billing/sessions/{sessionId}/momo
 **Auth:** OPERATOR, ADMIN  
@@ -658,10 +720,38 @@ version (closes its `effectiveTo`) and carries the schedules over.
     "totalRevenue": 4350000,
     "peakSessions": 23,
     "avgDurationMinutes": 142,
-    "revenueByHour": [ { "hour": 8, "revenue": 450000, "sessions": 12 } ]
+    "revenueByHour": [ { "hour": 8, "revenue": 450000, "sessions": 12 } ],
+    "collected": {
+      "cashTotal": 1850000,
+      "gatewayTotal": 2400000,
+      "total": 4250000,
+      "byMethod": [
+        { "method": "CASH",         "amount": 1650000, "count": 31 },
+        { "method": "CASH_OFFLINE", "amount": 200000,  "count": 4 },
+        { "method": "QR_CODE",      "amount": 900000,  "count": 18 },
+        { "method": "ONLINE",       "amount": 1500000, "count": 29 }
+      ]
+    }
   }
 }
 ```
+**`totalRevenue` và `collected.total` là hai con số KHÁC NHAU — đừng cố ép chúng bằng nhau:**
+- `totalRevenue` = **đã tính tiền**: tổng hóa đơn của các phiên RA trong kỳ, kể cả hóa đơn còn PENDING.
+- `collected` = **đã thu**: các payment có `paid_at` trong kỳ, kể cả tiền mặt thu lúc mất điện hôm
+  trước mới nhập máy hôm nay (BR-005-7).
+
+Chênh lệch giữa hai số chính là thứ cần soi: xe ra chưa trả tiền, hoặc tiền đã thu chưa nhập máy.
+
+`cashTotal` = `CASH + CASH_OFFLINE` — tiền mặt có người chịu trách nhiệm, đối chiếu với két cuối ca.
+`gatewayTotal` = `QR_CODE + ONLINE` — tiền vào thẳng MoMo/PayOS, không qua tay ai.
+
+`collected` có cùng cấu trúc trong `report/monthly`.
+
+> **Đổi so với bản trước:** trường `revenueByMethod` (gộp payment theo **hóa đơn có giờ RA trong kỳ**)
+> đã được thay bằng `collected` (gộp theo **`paid_at`**). Cùng trả lời "doanh thu theo phương thức",
+> nhưng chỉ một cái đối chiếu được với két tiền: tiền mặt thu lúc mất điện (BR-005-7) nhận vào ngày
+> xe ra nhưng nhập máy vài ngày sau, nên bản neo theo giờ RA sẽ đẩy tiền vào ca chưa từng cầm nó.
+> Hóa đơn `WAIVED` (whitelist) không có `payment` nên không xuất hiện ở cả hai cách tính.
 
 ### GET /api/v1/billing/report/monthly
 **Auth:** ADMIN  
@@ -677,10 +767,16 @@ version (closes its `effectiveTo`) and carries the schedules over.
     "prevMonthRevenue": 84000000,
     "growthRate": 0.0833,
     "avgDailyRevenue": 3033333,
-    "revenueByDay": [ { "date": "2025-06-01", "revenue": 2900000 } ]
+    "revenueByDay": [ { "date": "2025-06-01", "revenue": 2900000 } ],
+    "revenueByMethod": [
+      { "method": "CASH", "revenue": 38000000, "count": 900 },
+      { "method": "QR_CODE", "revenue": 15000000, "count": 210 },
+      { "method": "ONLINE", "revenue": 38000000, "count": 710 }
+    ]
   }
 }
 ```
+`revenueByMethod`: xem giải thích BR-005-8 ở `GET /billing/report/daily` — cùng shape, gộp theo cả tháng.
 
 ---
 
@@ -922,6 +1018,66 @@ with no body it is a client-side logout (no-op server-side).
 #### GET /api/v1/driver/sessions/{id}
 **Auth:** DRIVER
 **Response 200:** session detail (shape như `GET /sessions/{id}`). **403** nếu `plateNumber` của session không thuộc claim `plates`; 404 nếu không tồn tại.
+
+### parking-service (:8081) — Driver reservations (BR-009)
+
+> Đặt chỗ **rút một slot thật ra khỏi pool** (`EMPTY` → `RESERVED`), nên `RESERVED` được tính là
+> **đã dùng** ở mọi phép đếm sức chứa (BR-009-4). Slot do **server chọn** — client không được chỉ
+> định: nhận `slotId` từ client sẽ lộ sơ đồ bãi và mời gọi script vợt các chỗ đẹp.
+
+#### POST /api/v1/driver/reservations
+**Auth:** DRIVER
+**Request:**
+```json
+{ "plateNumber": "51F-12345", "startTime": "2026-07-23T08:00:00+07:00" }
+```
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "plateNumber": "51F-12345",
+    "slotId": "uuid",
+    "slotCode": "A05",
+    "zone": "A",
+    "gridRow": 0,
+    "gridCol": 4,
+    "startTime": "2026-07-23T08:00:00+07:00",
+    "holdUntil": "2026-07-23T08:20:00+07:00",
+    "status": "HELD",
+    "sessionId": null,
+    "createdAt": "2026-07-22T21:10:00+07:00"
+  }
+}
+```
+`holdUntil = startTime + hold-minutes` (mặc định 20′, BR-009-2). `gridRow`/`gridCol` là ô của slot
+trên bản đồ zone (BR-003-6) — có thể `null` với slot chưa được đặt tọa độ; client **bỏ qua**, không
+tự đoán vị trí.
+
+**Lỗi:**
+- **403** — `plateNumber` không nằm trong claim `plates` (biển chưa được duyệt cho tài khoản này, BR-009-1).
+- **409** `startTime` ở quá khứ (quá 5 phút) · xa hơn `max-lead-hours` (mặc định 72h) ·
+  biển đã có một lượt `HELD` (BR-009-5) · biển bị **tạm khóa** vì bỏ hẹn ≥3 lần/30 ngày (BR-009-8) ·
+  **bãi hết chỗ trống để đặt** (BR-009-3).
+
+#### GET /api/v1/driver/reservations
+**Auth:** DRIVER
+**Mô tả:** Lượt đặt của **chính tài khoản** (lọc theo `driverId` trong token), mới nhất trước.
+**Query:** `page` (default 0), `size` (default 20)
+**Response 200:** `Page` of reservation (shape như `data` ở trên).
+
+#### DELETE /api/v1/driver/reservations/{id}
+**Auth:** DRIVER
+**Mô tả:** Hủy lượt đặt, trả slot về pool (BR-009-7).
+**Response 200:** reservation với `status = "CANCELLED"`.
+**Lỗi:** 403 lượt đặt không thuộc tài khoản · 409 lượt không còn `HELD` (đã dùng/đã hủy/đã hết hạn) ·
+404 không tồn tại.
+
+**Vòng đời `status`:** `HELD` → `FULFILLED` (xe đã vào, gắn `sessionId`) · → `CANCELLED` (tài xế hủy)
+· → `EXPIRED` (quá `holdUntil` mà xe chưa tới — tính là **một lần bỏ hẹn**, BR-009-8).
+Xe có lượt `HELD` còn sống khi quét VÀO sẽ nhận **đúng slot đã giữ**, kể cả lúc bãi đang báo đầy
+(BR-009-6).
 
 ### billing-service (:8082) — Driver invoices & online payment
 

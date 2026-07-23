@@ -68,6 +68,7 @@ export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
 const slotMap: Record<SlotStatus, { label: string; variant: Variant }> = {
   EMPTY: { label: "Trống", variant: "success" },
   OCCUPIED: { label: "Có xe", variant: "secondary" },
+  RESERVED: { label: "Đã đặt", variant: "info" },
   MAINTENANCE: { label: "Bảo trì", variant: "warning" },
 };
 

@@ -167,12 +167,60 @@ CREATE TABLE slots (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slot_code           VARCHAR(10) UNIQUE NOT NULL, -- e.g. A01, B12
     zone                VARCHAR(5) NOT NULL DEFAULT 'A',
-    status              VARCHAR(20) NOT NULL DEFAULT 'EMPTY', -- EMPTY | OCCUPIED | MAINTENANCE
+    status              VARCHAR(20) NOT NULL DEFAULT 'EMPTY', -- EMPTY | OCCUPIED | RESERVED | MAINTENANCE
     current_session_id  UUID,
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_slots_status ON slots(status);
 ```
+
+### slots — tọa độ bản đồ bãi (V6 migration, BR-003-6)
+```sql
+-- slot_code ("A05") nói slot NÀO nhưng không nói Ở ĐÂU, nên không client nào vẽ được bản đồ chỉ
+-- chỗ. Lưu vị trí trong lưới của từng zone; client dựng zone thành hàng x cột rồi tô sáng slot của
+-- tài xế. Chỉ tọa độ lưới — không mét, không góc xoay: bản đồ bãi được đọc trong 2 giây.
+ALTER TABLE slots ADD COLUMN grid_row INTEGER;   -- nullable: slot cũ chưa có chỗ trên bản đồ
+ALTER TABLE slots ADD COLUMN grid_col INTEGER;
+
+-- Hai slot không thể cùng một ô trong cùng một zone.
+CREATE UNIQUE INDEX uq_slots_zone_grid ON slots (zone, grid_row, grid_col)
+    WHERE grid_row IS NOT NULL AND grid_col IS NOT NULL;
+```
+> Migration backfill slot đang có theo thứ tự `slot_code`, 10 slot/hàng, để bản đồ chạy được ngay
+> trên bãi đã seed thay vì hiện ra trống trơn. Sau đó server tự xếp lại (re-flow) mỗi lần zone thêm
+> hoặc xóa slot.
+
+### reservations (BR-009 — đặt chỗ trước cho tài xế, V7 migration)
+```sql
+CREATE TABLE reservations (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    driver_id     UUID NOT NULL,                        -- admin_db.drivers.id; KHÔNG FK chéo DB
+    plate_number  VARCHAR(20) NOT NULL,                 -- normalized; phải là biển đã verified
+    slot_id       UUID NOT NULL REFERENCES slots(id),
+    start_time    TIMESTAMPTZ NOT NULL,                 -- giờ tài xế hẹn tới
+    hold_until    TIMESTAMPTZ NOT NULL,                 -- start_time + grace; quá giờ này là hết hạn
+    status        VARCHAR(20)  NOT NULL DEFAULT 'HELD', -- HELD | FULFILLED | CANCELLED | EXPIRED
+    session_id    UUID,                                 -- session đã tiêu thụ lượt giữ chỗ
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- BR-009-5: mỗi biển tối đa 1 lượt đang giữ (cùng tinh thần BR-002-4).
+CREATE UNIQUE INDEX uq_reservation_held_plate
+    ON reservations (plate_number) WHERE status = 'HELD';
+
+-- BR-009-3: một slot chỉ được giữ bởi một lượt. Đây là ràng buộc khiến overbooking KHÔNG thể xảy ra
+-- kể cả khi hai tài xế cùng tranh chỗ cuối cùng.
+CREATE UNIQUE INDEX uq_reservation_held_slot
+    ON reservations (slot_id) WHERE status = 'HELD';
+
+CREATE INDEX idx_reservations_driver ON reservations (driver_id, created_at DESC);
+CREATE INDEX idx_reservations_plate ON reservations (plate_number);
+-- Job quét hết hạn (BR-009-2) đọc đúng index này.
+CREATE INDEX idx_reservations_hold_until ON reservations (hold_until) WHERE status = 'HELD';
+```
+> `driver_id` trỏ sang `admin_db.drivers` nhưng **không có FK** — Database Per Service. Lượt đặt
+> không bao giờ bị xóa: `EXPIRED` chính là lịch sử bỏ hẹn mà BR-009-8 đếm để tạm khóa quyền đặt chỗ.
 
 ### gates
 ```sql
@@ -331,7 +379,7 @@ CREATE INDEX idx_invoices_created_at ON invoices(created_at DESC);
 CREATE TABLE payments (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     invoice_id  UUID NOT NULL REFERENCES invoices(id),
-    method      VARCHAR(20) NOT NULL,   -- CASH | QR_CODE
+    method      VARCHAR(20) NOT NULL,   -- CASH | QR_CODE | ONLINE | CASH_OFFLINE
     amount_paid DECIMAL(12,2) NOT NULL,
     received_by UUID NOT NULL,          -- operator user_id
     note        TEXT,
@@ -340,6 +388,43 @@ CREATE TABLE payments (
 CREATE INDEX idx_payments_invoice_id ON payments(invoice_id);
 CREATE INDEX idx_payments_paid_at ON payments(paid_at DESC);
 ```
+
+### payments — thu tiền lúc mất điện (V5 migration, BR-005-7)
+```sql
+-- Số sê-ri phiếu giấy giao cho khách lúc mất điện. Đối soát cuối ca: số phiếu đã dùng phải
+-- khớp tiền mặt nộp — kiểm soát duy nhất với tiền thu ngoài hệ thống.
+ALTER TABLE payments ADD COLUMN offline_voucher_no VARCHAR(20);
+
+-- Một phiếu chỉ tất toán đúng một hóa đơn; sê-ri lặp = nhập nhầm hoặc gian lận.
+CREATE UNIQUE INDEX uq_payments_offline_voucher_no
+    ON payments (offline_voucher_no) WHERE offline_voucher_no IS NOT NULL;
+
+-- Báo cáo tách tiền mặt / tiền cổng thanh toán theo method.
+CREATE INDEX idx_payments_method_paid_at ON payments (method, paid_at DESC);
+```
+
+### payments — chặn thu hai lần + payment_duplicates (V6 migration, BR-005-2)
+```sql
+-- Một hóa đơn được tất toán bởi ĐÚNG một payment. Service chỉ trả hóa đơn PENDING, nhưng
+-- đọc-rồi-ghi không nguyên tử: IPN của cổng thanh toán và nhân viên thu tiền mặt có thể cùng
+-- thấy PENDING và cùng insert. Kiểm tra trạng thái nay nằm sau SELECT ... FOR UPDATE; index này
+-- là chốt chặn cuối, để một luồng nào đó sau này quên khóa cũng không thu được lần hai.
+CREATE UNIQUE INDEX uq_payments_invoice_id ON payments (invoice_id);
+
+-- Payment thứ 2 trở đi của cùng một hóa đơn — bị dời sang đây lúc migration chạy, KHÔNG xóa.
+CREATE TABLE payment_duplicates (
+    LIKE payments INCLUDING DEFAULTS,
+    quarantined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reason         TEXT        NOT NULL
+);
+```
+> **Vì sao có bảng này:** DB dev **đã có thật** một hóa đơn bị thu hai lần (2 payment `ONLINE` cách
+> nhau 3,4 giây) — đúng cuộc đua mà index trên chặn. Không dời chúng đi thì index không tạo được,
+> nhưng đó là bản ghi **tiền đã chuyển thật**: khách có thể đã bị trừ hai lần và đang chờ hoàn.
+> Vì vậy migration **giữ payment sớm nhất** (bản đã thực sự tất toán hóa đơn) và **dời** phần còn
+> lại sang `payment_duplicates` — xóa đi sẽ khiến vụ thu trùng biến mất không dấu vết, còn tệ hơn
+> chính cái trùng đó. Bảng này **không được ghi lúc runtime**; có dòng nào là phải đối soát với
+> cổng thanh toán và hoàn tiền nếu đúng là đã trừ hai lần.
 
 ### outbox_events (Outbox Pattern – billing_db)
 ```sql

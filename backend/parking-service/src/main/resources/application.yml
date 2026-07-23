@@ -70,6 +70,20 @@ app:
     #   open-always = open the gate for any exit so a car is never trapped — for unattended lots given
     #     imperfect OCR, but accepts the theft/revenue risk.
     exit-policy: ${PARKING_EXIT_POLICY:require-match}
+    # BR-009: driver slot booking. A held slot is taken out of the walk-in pool (RESERVED), so
+    # every value here trades a driver's certainty against slots left standing empty.
+    reservation:
+      # BR-009-2: grace after the promised arrival time before the hold is swept. Long enough to
+      # absorb traffic, short enough that a no-show does not cost the lot a whole hour.
+      hold-minutes: ${PARKING_RESERVATION_HOLD_MINUTES:20}
+      # BR-009-1: booking further out than this holds a slot on a guess, not a plan.
+      max-lead-hours: ${PARKING_RESERVATION_MAX_LEAD_HOURS:72}
+      # BR-009-8: no-shows within the window that cost a plate the right to book.
+      no-show-limit: ${PARKING_RESERVATION_NO_SHOW_LIMIT:3}
+      no-show-window-days: ${PARKING_RESERVATION_NO_SHOW_WINDOW_DAYS:30}
+      # How often expired holds are swept back into the pool. Only affects how fast a slot is
+      # freed — an expired hold is already treated as dead at the gate.
+      sweep-ms: ${PARKING_RESERVATION_SWEEP_MS:60000}
   jwt:
     # Same HS256 secret as admin-service (the issuer). Verify-only here. Fail-fast if unset.
     secret: ${JWT_SECRET}

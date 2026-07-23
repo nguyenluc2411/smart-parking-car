@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Invoice, InvoiceStatus } from "@/types";
+import type { InvoiceStatus } from "@/types";
 import { useInvoice, useInvoices } from "@/lib/hooks/useBilling";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -37,7 +37,10 @@ function BillingContent() {
   const [date, setDate] = useState("");
   const [plate, setPlate] = useState("");
   const [page, setPage] = useState(0);
-  const [selected, setSelected] = useState<Invoice | null>(null);
+  // Lưu sessionId thay vì cả object Invoice: hàng trong bảng danh sách KHÔNG có breakdown bảng giá
+  // (peakMultiplier/overnightFlat/minCharge — chỉ GET /billing/sessions/{sessionId} mới trả đủ), nên
+  // panel chi tiết luôn fetch riêng qua useInvoice() để có đúng dữ liệu hiển thị lúc thanh toán.
+  const [selectedSessionId, setSelectedSessionId] = useState("");
 
   const debouncedPlate = useDebounce(plate, 400);
 
@@ -55,17 +58,12 @@ function BillingContent() {
   });
 
   // Deep-link cũ (?sessionId=) từ trang Phiên → tự chọn hóa đơn đó.
-  const deepInvoice = useInvoice(deepLink);
   useEffect(() => {
-    if (deepLink && deepInvoice.data) setSelected(deepInvoice.data);
-  }, [deepLink, deepInvoice.data]);
+    if (deepLink) setSelectedSessionId(deepLink);
+  }, [deepLink]);
 
-  // Sau khi thanh toán, list refetch → đồng bộ trạng thái panel bên phải.
-  useEffect(() => {
-    if (!selected || !query.data) return;
-    const fresh = query.data.content.find((i) => i.invoiceId === selected.invoiceId);
-    if (fresh && fresh.status !== selected.status) setSelected(fresh);
-  }, [query.data, selected]);
+  // usePayInvoice/QR-status invalidate đúng key này nên panel tự cập nhật sau khi thanh toán.
+  const selected = useInvoice(selectedSessionId);
 
   return (
     <div>
@@ -115,8 +113,8 @@ function BillingContent() {
               <>
                 <InvoiceTable
                   rows={query.data.content}
-                  selectedId={selected?.sessionId}
-                  onSelect={setSelected}
+                  selectedId={selectedSessionId || undefined}
+                  onSelect={(invoice) => setSelectedSessionId(invoice.sessionId)}
                 />
                 <Pagination
                   page={page}
@@ -130,12 +128,18 @@ function BillingContent() {
         </Card>
 
         <div className="lg:col-span-1">
-          {selected ? (
+          {selected.isLoading ? (
+            <Card className="border border-border/50 shadow-sm">
+              <CardContent className="py-12">
+                <Spinner />
+              </CardContent>
+            </Card>
+          ) : selected.data ? (
             <div className="space-y-4">
-              <InvoiceCard invoice={selected} />
+              <InvoiceCard invoice={selected.data} />
               <Card className="border border-border/50 shadow-sm">
                 <CardContent className="pt-6">
-                  <PaymentDialog invoice={selected} />
+                  <PaymentDialog invoice={selected.data} />
                 </CardContent>
               </Card>
             </div>

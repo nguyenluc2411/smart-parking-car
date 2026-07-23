@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     auto_capture_enabled: bool = False
     auto_capture_entry_source: str = ""   # e.g. "0" or rtsp://... → GATE_ENTRY_01 IN
     auto_capture_exit_source: str = ""    # e.g. "1" or rtsp://... → GATE_EXIT_01 OUT
+
+    # Second camera per gate (BR-001-6). The sources above are the PLATE cameras — tight, low,
+    # aimed at the number plate, and the only ones OCR runs on. These are the OVERVIEW cameras:
+    # wide, high, showing the whole vehicle. They never feed ALPR; their frame is stored alongside
+    # the detection so an operator can tell whether the car in front of the barrier is the car the
+    # plate belongs to. That is the check a single plate-camera physically cannot make, and it is
+    # what a cloned plate defeats today. Empty = that gate keeps working with one camera.
+    auto_capture_entry_overview_source: str = ""
+    auto_capture_exit_overview_source: str = ""
     auto_capture_interval: float = 2.0      # seconds between burst attempts when idle
     auto_capture_cooldown: float = 8.0      # seconds after publish (same as camera_agent)
     auto_capture_frames: int = 5

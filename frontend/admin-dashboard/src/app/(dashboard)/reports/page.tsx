@@ -1,6 +1,6 @@
 "use client";
 
-import { DollarSign, Car, Clock, TrendingUp } from "lucide-react";
+import { DollarSign, Car, Clock, TrendingUp, Banknote, CreditCard } from "lucide-react";
 import { useDailyReport, useMonthlyReport } from "@/lib/hooks/useReports";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RoleGuard } from "@/components/layout/RoleGuard";
@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
+import type { CollectionSummary } from "@/types";
 import dynamic from "next/dynamic";
 
 const RevenueChart = dynamic(
@@ -25,6 +26,20 @@ const MonthlyChart = dynamic(
   { ssr: false, loading: () => <div className="h-64 animate-pulse bg-muted/20 rounded-xl" /> }
 );
 
+const PaymentMethodChart = dynamic(
+  () => import("@/components/dashboard/PaymentMethodChart"),
+  { ssr: false, loading: () => <div className="h-56 animate-pulse bg-muted/20 rounded-xl" /> }
+);
+
+/**
+ * BR-005-8: tiền mặt riêng, tiền qua cổng thanh toán riêng. Server đã chia sẵn — client không tự
+ * cộng lại, vì phân loại nào thuộc "tiền mặt" là luật nghiệp vụ (CASH_OFFLINE cũng là tiền mặt),
+ * không phải chuyện hiển thị.
+ */
+function cashVsSystem(collected: CollectionSummary) {
+  return { cash: collected.cashTotal, system: collected.gatewayTotal };
+}
+
 export default function ReportsPage() {
   const localToday = new Date().toLocaleDateString("sv");
   const daily = useDailyReport(localToday, {
@@ -32,6 +47,7 @@ export default function ReportsPage() {
     refetchIntervalInBackground: false,
   });
   const monthly = useMonthlyReport();
+  const dailySplit = daily.data ? cashVsSystem(daily.data.collected) : null;
 
   return (
     <RoleGuard allow={["ADMIN"]}>
@@ -57,6 +73,20 @@ export default function ReportsPage() {
               title="Thời lượng TB"
               value={`${daily.data.avgDurationMinutes}'`}
               icon={Clock}
+            />
+          </>
+        )}
+        {dailySplit && (
+          <>
+            <StatCard
+              title="Tiền mặt (hôm nay)"
+              value={formatCurrency(dailySplit.cash)}
+              icon={Banknote}
+            />
+            <StatCard
+              title="Hệ thống (hôm nay)"
+              value={formatCurrency(dailySplit.system)}
+              icon={CreditCard}
             />
           </>
         )}
@@ -93,6 +123,19 @@ export default function ReportsPage() {
               <Spinner />
             ) : (
               <MonthlyChart data={monthly.data.revenueByDay} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Tiền mặt vs Hệ thống (hôm nay)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {daily.isLoading || !daily.data ? (
+              <Spinner />
+            ) : (
+              <PaymentMethodChart data={daily.data.collected.byMethod} />
             )}
           </CardContent>
         </Card>

@@ -42,6 +42,24 @@ export function InvoiceCard({ invoice }: { invoice: Invoice }) {
           value={`${formatCurrency(invoice.ratePerMin)}/phút`}
         />
         <Separator />
+        {invoice.peakMultiplier != null && (
+          <>
+            <Row label="Hệ số cao điểm" value={`×${invoice.peakMultiplier}`} />
+            <Separator />
+          </>
+        )}
+        {invoice.overnightFlat != null && (
+          <>
+            <Row label="Phí qua đêm" value={formatCurrency(invoice.overnightFlat)} />
+            <Separator />
+          </>
+        )}
+        {invoice.minCharge != null && (
+          <>
+            <Row label="Phí tối thiểu" value={formatCurrency(invoice.minCharge)} />
+            <Separator />
+          </>
+        )}
         <Row
           label="Phụ phí"
           value={
