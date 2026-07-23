@@ -30,15 +30,30 @@ function StatusBadgeBase({ variant = "secondary", label }: { variant?: Variant; 
   );
 }
 
-const sessionMap: Record<SessionStatus, { label: string; variant: Variant }> = {
+const sessionMap: Record<Exclude<SessionStatus, "CLOSED">, { label: string; variant: Variant }> = {
   PENDING: { label: "Chờ xử lý", variant: "warning" },
   ACTIVE: { label: "Đang đỗ", variant: "success" },
-  CLOSED: { label: "Đã ra", variant: "secondary" },
   CANCELLED: { label: "Đã hủy", variant: "destructive" },
   REQUIRES_ATTENTION: { label: "Cần đối soát", variant: "warning" },
 };
 
-export function SessionStatusBadge({ status }: { status: SessionStatus }) {
+/**
+ * status=CLOSED chỉ có nghĩa "billing đã tính phí" (BR-005-5) — xe vãng lai vẫn đứng ở barie
+ * cho tới khi thanh toán xong. exitReleasedAt (non-null khi cổng ra đã thực mở cho phiên này)
+ * mới là tín hiệu đúng để nói "xe đã ra".
+ */
+export function SessionStatusBadge({
+  status,
+  exitReleasedAt,
+}: {
+  status: SessionStatus;
+  exitReleasedAt?: string | null;
+}) {
+  if (status === "CLOSED") {
+    return exitReleasedAt
+      ? <StatusBadgeBase variant="secondary" label="Đã ra" />
+      : <StatusBadgeBase variant="warning" label="Đã tính phí — chờ thanh toán" />;
+  }
   const c = sessionMap[status] ?? { label: status, variant: "secondary" };
   return <StatusBadgeBase variant={c.variant} label={c.label} />;
 }

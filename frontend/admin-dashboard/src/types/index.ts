@@ -92,6 +92,8 @@ export interface SessionListItem {
   exitTime: string | null;
   durationSeconds: number | null;
   status: SessionStatus;
+  /** Non-null only once the exit barrier has physically opened for this session (BR-005-5). */
+  exitReleasedAt: string | null;
 }
 
 export interface SessionDetail {
@@ -104,6 +106,8 @@ export interface SessionDetail {
   exitTime: string | null;
   durationSeconds: number | null;
   status: SessionStatus;
+  /** Non-null only once the exit barrier has physically opened for this session (BR-005-5). */
+  exitReleasedAt: string | null;
   entryImageUrl: string | null;
   exitImageUrl: string | null;
   entryPlateImageUrl: string | null;

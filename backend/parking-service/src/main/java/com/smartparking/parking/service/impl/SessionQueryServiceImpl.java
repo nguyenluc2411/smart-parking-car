@@ -69,7 +69,8 @@ public class SessionQueryServiceImpl implements SessionQueryService {
                 .map(s -> new SessionSummaryResponseDTO(
                         s.getId(), s.getPlateNumber(),
                         s.getSlotId() == null ? null : slotCodes.get(s.getSlotId()),
-                        s.getEntryTime(), s.getExitTime(), s.getDurationSeconds(), s.getStatus()))
+                        s.getEntryTime(), s.getExitTime(), s.getDurationSeconds(), s.getStatus(),
+                        s.getExitReleasedAt()))
                 .toList();
         return PageResponseDTO.of(result, content);
     }
@@ -95,7 +96,8 @@ public class SessionQueryServiceImpl implements SessionQueryService {
                 .map(s -> new SessionSummaryResponseDTO(
                         s.getId(), s.getPlateNumber(),
                         s.getSlotId() == null ? null : slotCodes.get(s.getSlotId()),
-                        s.getEntryTime(), s.getExitTime(), s.getDurationSeconds(), s.getStatus()))
+                        s.getEntryTime(), s.getExitTime(), s.getDurationSeconds(), s.getStatus(),
+                        s.getExitReleasedAt()))
                 .toList();
         return PageResponseDTO.of(result, content);
     }
@@ -128,6 +130,7 @@ public class SessionQueryServiceImpl implements SessionQueryService {
                 s.getId(), s.getPlateNumber(), slot,
                 gateRef(s.getEntryGateId()), gateRef(s.getExitGateId()),
                 s.getEntryTime(), s.getExitTime(), s.getDurationSeconds(), s.getStatus(),
+                s.getExitReleasedAt(),
                 imageUrlService.presignedGet(s.getEntryImageRef()),
                 imageUrlService.presignedGet(s.getExitImageRef()),
                 imageUrlService.presignedPlateCrop(s.getEntryImageRef()),

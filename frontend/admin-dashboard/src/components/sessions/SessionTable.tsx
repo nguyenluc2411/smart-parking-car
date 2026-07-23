@@ -50,7 +50,7 @@ export const SessionTable = React.memo(function SessionTable({ rows }: { rows: S
             <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDateTime(s.exitTime)}</TableCell>
             <TableCell className="tabular-nums text-[13px] text-muted-foreground">{formatDuration(s.durationSeconds)}</TableCell>
             <TableCell>
-              <SessionStatusBadge status={s.status} />
+              <SessionStatusBadge status={s.status} exitReleasedAt={s.exitReleasedAt} />
             </TableCell>
           </TableRow>
         ))}

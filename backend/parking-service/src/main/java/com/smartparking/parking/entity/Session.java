@@ -63,6 +63,12 @@ public class Session {
     @Column(name = "exit_image_ref", length = 300)
     private String exitImageRef;
 
+    /** Set exactly when the exit barrier physically opens for this session (V8 migration). NULL
+     * while status=CLOSED means billing has calculated the fee but the car hasn't left yet — see
+     * {@code openExitGate()} in SessionServiceImpl, the single place this is written. */
+    @Column(name = "exit_released_at")
+    private OffsetDateTime exitReleasedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private SessionStatus status;

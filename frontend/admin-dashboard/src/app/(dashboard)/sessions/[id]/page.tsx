@@ -57,7 +57,7 @@ export default function SessionDetailPage({
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>{query.data.plateNumber}</CardTitle>
-              <SessionStatusBadge status={query.data.status} />
+              <SessionStatusBadge status={query.data.status} exitReleasedAt={query.data.exitReleasedAt} />
             </CardHeader>
             <CardContent>
               <Row label="Mã phiên" value={query.data.id} />

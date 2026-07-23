@@ -381,6 +381,11 @@ public class SessionServiceImpl implements SessionService {
         gate.setLastCommandAt(OffsetDateTime.now());
         gateRepository.save(gate);
         recordOutbox("Gate", gate.getId(), gateCommandTopic, buildGateCommand(gate, session));
+
+        // Session-scoped "car has actually left" marker — distinct from gate.status, which
+        // auto-recloses (BR-006-2) and is shared across sessions. See Session.exitReleasedAt.
+        session.setExitReleasedAt(OffsetDateTime.now());
+        sessionRepository.save(session);
     }
 
     /**

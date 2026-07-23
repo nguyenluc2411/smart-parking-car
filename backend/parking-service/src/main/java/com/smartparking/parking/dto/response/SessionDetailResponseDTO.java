@@ -15,6 +15,8 @@ public record SessionDetailResponseDTO(
         OffsetDateTime exitTime,
         Integer durationSeconds,
         SessionStatus status,
+        /** Non-null once the exit barrier has physically opened for this session (BR-005-5). */
+        OffsetDateTime exitReleasedAt,
         String entryImageUrl,        // presigned URL ảnh full chụp lúc vào, đã vẽ khung+biển (null nếu không có)
         String exitImageUrl,         // presigned URL ảnh full chụp lúc ra, đã vẽ khung+biển (null nếu không có)
         String entryPlateImageUrl,   // presigned URL ảnh crop cận cảnh biển lúc vào (null nếu không có)

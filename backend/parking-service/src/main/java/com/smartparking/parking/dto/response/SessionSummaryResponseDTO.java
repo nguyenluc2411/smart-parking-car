@@ -12,6 +12,8 @@ public record SessionSummaryResponseDTO(
         OffsetDateTime entryTime,
         OffsetDateTime exitTime,
         Integer durationSeconds,
-        SessionStatus status
+        SessionStatus status,
+        /** Non-null once the exit barrier has physically opened for this session (BR-005-5). */
+        OffsetDateTime exitReleasedAt
 ) {
 }
