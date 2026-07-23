@@ -84,6 +84,14 @@ class Fmt {
         'OPERATOR': 'Nhân viên',
       }, s);
 
+  /// Trạng thái lượt đặt chỗ: HELD | FULFILLED | CANCELLED | EXPIRED.
+  static String reservationStatus(String? s) => _map(const {
+        'HELD': 'Đang giữ chỗ',
+        'FULFILLED': 'Đã vào bãi',
+        'CANCELLED': 'Đã hủy',
+        'EXPIRED': 'Đã hết hạn (bỏ hẹn)',
+      }, s);
+
   /// Loại xe trong danh sách: WHITELIST | BLACKLIST.
   static String vehicleType(String? s) => _map(const {
         'WHITELIST': 'Ưu tiên',

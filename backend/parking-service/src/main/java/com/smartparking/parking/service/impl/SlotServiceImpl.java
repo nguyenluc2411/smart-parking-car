@@ -3,6 +3,7 @@ package com.smartparking.parking.service.impl;
 import com.smartparking.parking.dto.request.CreateSlotRequestDTO;
 import com.smartparking.parking.dto.request.ProvisionZoneRequestDTO;
 import com.smartparking.parking.dto.request.UpdateSlotStatusRequestDTO;
+import com.smartparking.parking.dto.response.DriverSlotDTO;
 import com.smartparking.parking.dto.response.ProvisionResultDTO;
 import com.smartparking.parking.dto.response.SlotAvailabilityResponseDTO;
 import com.smartparking.parking.dto.response.SlotResponseDTO;
@@ -70,6 +71,16 @@ public class SlotServiceImpl implements SlotService {
         return slotRepository.findAll().stream()
                 .sorted(Comparator.comparing(Slot::getSlotCode))
                 .map(this::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DriverSlotDTO> listForDriver() {
+        return slotRepository.findAll().stream()
+                .sorted(Comparator.comparing(Slot::getZone).thenComparing(Slot::getSlotCode))
+                .map(s -> new DriverSlotDTO(s.getId(), s.getSlotCode(), s.getZone(),
+                        s.getStatus(), s.getGridRow(), s.getGridCol()))
                 .toList();
     }
 

@@ -118,16 +118,20 @@ Color statusColor(BuildContext context, String status) {
     case 'OPEN':
     case 'PAID':
     case 'EMPTY':
+    case 'FULFILLED':
       return green;
     case 'CLOSED':
     case 'OCCUPIED':
+    case 'RESERVED':
       return scheme.primary;
     case 'PENDING':
     case 'MAINTENANCE':
+    case 'HELD':
       return orange;
     case 'REQUIRES_ATTENTION':
     case 'CANCELLED':
     case 'BLACKLIST':
+    case 'EXPIRED':
       return scheme.error;
     default:
       return scheme.outline;

@@ -120,7 +120,7 @@
         <button class="in" id="btnIn" type="button">Quét XE VÀO</button>
         <button class="out" id="btnOut" type="button">Quét XE RA</button>
         <label class="ghost" style="padding:11px 16px;border-radius:10px;">Ảnh
-          <input id="file" type="file" accept="image/*" style="display:none">
+          <input id="file" type="file" accept="image/*" multiple style="display:none">
         </label>
         <label class="ghost" style="padding:11px 16px;border-radius:10px;">Video
           <input id="video" type="file" accept="video/*" style="display:none">
@@ -144,6 +144,7 @@
     </div>
     <div class="plate" id="plate">—</div>
     <div class="meta"><span id="conf">confidence: —</span><span id="lat">—</span></div>
+    <div id="slotMapBox" style="display:none; margin-top:10px"></div>
 
     <h2 style="margin-top:18px">3 · Barie</h2>
     <div class="gates">
@@ -605,8 +606,11 @@ $('#btnAutoToggle').onclick = () => {
   await startCamera(facing);
 })();
 // Ảnh từ file: hỏi chiều TRƯỚC khi quét; reset value để chọn lại đúng file vẫn chạy.
+// Cho chọn NHIỀU ảnh của CÙNG một xe (vd 2-3 góc/khung khác nhau) để burst bỏ phiếu thật sự
+// phát huy tác dụng — 1 ảnh duy nhất vẫn bị chặn bởi đúng ngưỡng confidence như single-shot
+// (burst_pipeline.py tự hạ min_votes xuống 1 khi chỉ có 1 khung).
 $('#file').addEventListener('click', ()=>{ window.fileDir = confirm('OK = Xe VÀO, Cancel = Xe RA') ? 'IN':'OUT'; });
-$('#file').onchange  = e => { const f=e.target.files[0]; if(f) scan(window.fileDir||'IN', [f]); e.target.value=''; };
+$('#file').onchange  = e => { const files=Array.from(e.target.files); if(files.length) scan(window.fileDir||'IN', files); e.target.value=''; };
 
 // --- VIDEO upload: thay cho camera quay thật. Trích N khung ở client (video + canvas) rồi gửi
 //     cùng một burst /detect_burst → bầu chọn y như chụp 5 khung từ camera, không đụng backend. ---
@@ -788,6 +792,7 @@ async function resolveOutcome(direction, plate) {
     if (o.availability) renderAvail(o.availability);
     setMsg(o.message || '—', o.barrier ? 'ok' : 'bad');
     $('#scanstate').textContent = o.barrier ? 'Barie mở' : 'Barie không mở';
+    renderSlotMap(direction === 'IN' ? o.slotMap : null);
     // BR-005-9: hóa đơn PENDING → hỏi phương thức TRƯỚC (tiền mặt hay chuyển khoản), không tự
     // tạo QR ngay. Xe whitelist (WAIVED) / đã trả → không hỏi gì (hết vòng lặp).
     if (direction === 'OUT' && o.needsPayment) {
@@ -802,6 +807,33 @@ async function resolveOutcome(direction, plate) {
   } catch (e) {
     setMsg('Lỗi lấy kết quả xử lý: ' + e, 'bad');
   }
+}
+
+// Sơ đồ MINH HỌA vị trí slot vừa được hệ thống tự gán cho xe walk-in (BR-003-6) — chỉ để xem,
+// không phải chọn chỗ (đó là tính năng riêng của app tài xế, BR-009-10). gridRow/gridCol có thể
+// null (slot chưa có tọa độ) -> không vẽ lưới, chỉ hiện mã slot.
+const SLOT_MAP_COLS = 10; // khớp GRID_COLUMNS ở SlotServiceImpl
+function renderSlotMap(m) {
+  const box = $('#slotMapBox');
+  if (!m || !m.slotCode) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (m.gridRow == null || m.gridCol == null) {
+    box.innerHTML = `<div class="meta">Ô ${m.slotCode} · Zone ${m.zone||'?'} — chưa có sơ đồ cho ô này.</div>`;
+    box.style.display = 'block';
+    return;
+  }
+  const rows = m.gridRow + 2;
+  let cells = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < SLOT_MAP_COLS; c++) {
+      const mine = (r === m.gridRow && c === m.gridCol);
+      cells += `<div style="aspect-ratio:1;border-radius:4px;border:1px solid var(--line,#3a3a3a);
+        background:${mine ? 'var(--ok,#2e7d32)' : 'var(--panel2,#2a2a2a)'};
+        display:flex;align-items:center;justify-content:center;font-size:9px;color:${mine?'#fff':'transparent'}">${mine?'🚗':''}</div>`;
+    }
+  }
+  box.innerHTML = `<div class="meta" style="margin-bottom:6px">Sơ đồ minh họa · Zone ${m.zone} — ô của bạn: <b>${m.slotCode}</b></div>
+    <div style="display:grid;grid-template-columns:repeat(${SLOT_MAP_COLS},1fr);gap:3px;max-width:320px">${cells}</div>`;
+  box.style.display = 'block';
 }
 
 // --- số xe trong bãi / chỗ trống (nguồn: parking-service) ---

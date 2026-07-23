@@ -32,6 +32,12 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, "INVOICE_NOT_FOUND", ex.getMessage(), null);
     }
 
+    @ExceptionHandler(ReservationFeeNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleReservationFeeNotFound(
+            ReservationFeeNotFoundException ex) {
+        return error(HttpStatus.NOT_FOUND, "RESERVATION_FEE_NOT_FOUND", ex.getMessage(), null);
+    }
+
     @ExceptionHandler(InvalidPaymentException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidPayment(InvalidPaymentException ex) {
         return error(HttpStatus.CONFLICT, "INVALID_PAYMENT", ex.getMessage(), null);

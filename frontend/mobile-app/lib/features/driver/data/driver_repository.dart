@@ -87,6 +87,46 @@ class DriverRepository {
         (data) => SessionDetail.fromJson(data as Map<String, dynamic>),
       );
 
+  // ---- parking-service: driver reservations (BR-009) ----
+
+  /// BR-009-10: toàn bộ slot trong bãi để tài xế chọn zone + ô trước khi đặt.
+  Future<List<DriverSlot>> listSlots() => apiCall(
+        () => _parking.get('/driver/slots'),
+        (data) => (data as List<dynamic>)
+            .map((e) => DriverSlot.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false),
+      );
+
+  Future<Reservation> createReservation({
+    required String plateNumber,
+    required DateTime startTime,
+    String? slotId,
+  }) =>
+      apiCall(
+        () => _parking.post('/driver/reservations', data: {
+          'plateNumber': plateNumber,
+          'startTime': startTime.toIso8601String(),
+          if (slotId != null) 'slotId': slotId,
+        }),
+        (data) => Reservation.fromJson(data as Map<String, dynamic>),
+      );
+
+  Future<PageResult<Reservation>> myReservations({
+    int page = 0,
+    int size = 20,
+  }) =>
+      apiCall(
+        () => _parking.get('/driver/reservations',
+            queryParameters: {'page': page, 'size': size}),
+        (data) => PageResult.fromJson(
+            data as Map<String, dynamic>, Reservation.fromJson),
+      );
+
+  Future<Reservation> cancelReservation(String id) => apiCall(
+        () => _parking.delete('/driver/reservations/$id'),
+        (data) => Reservation.fromJson(data as Map<String, dynamic>),
+      );
+
   // ---- billing-service: my invoices + online pay ----
 
   Future<PageResult<Invoice>> myInvoices({
@@ -113,5 +153,30 @@ class DriverRepository {
         () => _billing.post('/driver/invoices/$invoiceId/pay',
             data: {'method': 'ONLINE'}),
         (data) => DriverPaymentResult.fromJson(data as Map<String, dynamic>),
+      );
+
+  // ---- billing-service: reservation booking fee (BR-009-11) ----
+
+  Future<ReservationFee> createReservationFee({
+    required String reservationId,
+    required String plateNumber,
+    required DateTime reservationStartTime,
+  }) =>
+      apiCall(
+        () => _billing.post('/driver/reservations/$reservationId/fee', data: {
+          'plateNumber': plateNumber,
+          'reservationStartTime': reservationStartTime.toIso8601String(),
+        }),
+        (data) => ReservationFee.fromJson(data as Map<String, dynamic>),
+      );
+
+  Future<ReservationFee> getReservationFee(String reservationId) => apiCall(
+        () => _billing.get('/driver/reservations/$reservationId/fee'),
+        (data) => ReservationFee.fromJson(data as Map<String, dynamic>),
+      );
+
+  Future<ReservationFee> refundReservationFee(String reservationId) => apiCall(
+        () => _billing.post('/driver/reservations/$reservationId/fee/refund'),
+        (data) => ReservationFee.fromJson(data as Map<String, dynamic>),
       );
 }

@@ -52,6 +52,11 @@ app:
     # many minutes; at/under it those 30-min blocks fall back to the normal rate (so a few minutes
     # around 22:00 isn't billed a whole overnight package).
     overnight-grace-minutes: ${BILLING_OVERNIGHT_GRACE_MINUTES:60}
+  # Driver reservation booking fee (BR-009-11) — a small PayOS charge at booking time to deter
+  # spam/no-show holds, refundable if cancelled early enough before the promised arrival.
+  reservation-fee:
+    percent-of-min-charge: ${RESERVATION_FEE_PERCENT:0.30}
+    refund-cutoff-minutes: ${RESERVATION_FEE_REFUND_CUTOFF_MINUTES:30}
   jwt:
     # Same HS256 secret as admin-service (the issuer). Verify-only here. Fail-fast if unset.
     secret: ${JWT_SECRET}

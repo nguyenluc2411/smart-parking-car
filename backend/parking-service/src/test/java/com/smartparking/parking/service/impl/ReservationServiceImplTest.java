@@ -66,7 +66,11 @@ class ReservationServiceImplTest {
     }
 
     private CreateReservationRequestDTO request(OffsetDateTime startTime) {
-        return new CreateReservationRequestDTO(PLATE, startTime);
+        return new CreateReservationRequestDTO(PLATE, startTime, null);
+    }
+
+    private CreateReservationRequestDTO requestForSlot(OffsetDateTime startTime, UUID slotId) {
+        return new CreateReservationRequestDTO(PLATE, startTime, slotId);
     }
 
     /** The slot must leave the walk-in pool, or the booking promises something it cannot deliver. */
@@ -85,6 +89,35 @@ class ReservationServiceImplTest {
         assertEquals(ReservationStatus.HELD, resp.status());
         // Hold runs 20 minutes past the promised arrival (BR-009-2).
         assertEquals(start.plusMinutes(20), resp.holdUntil());
+    }
+
+    /** BR-009-10: a driver-picked slot is claimed by id instead of auto-assigning the first EMPTY. */
+    @Test
+    void create_withChosenSlotId_claimsThatExactSlot() {
+        Slot slot = emptySlot();
+        OffsetDateTime start = OffsetDateTime.now().plusHours(2);
+        when(slotRepository.findByIdAndStatus(slot.getId(), SlotStatus.EMPTY))
+                .thenReturn(Optional.of(slot));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(i -> i.getArgument(0));
+
+        ReservationResponseDTO resp = service.create(driver(), requestForSlot(start, slot.getId()));
+
+        assertEquals(SlotStatus.RESERVED, slot.getStatus());
+        assertEquals("A05", resp.slotCode());
+        verify(slotRepository, never()).findFirstAvailable(any(), any());
+    }
+
+    /** BR-009-10: someone else took the chosen slot between the driver viewing the map and booking. */
+    @Test
+    void create_chosenSlotNoLongerEmpty_throwsConflict() {
+        UUID slotId = UUID.randomUUID();
+        when(slotRepository.findByIdAndStatus(slotId, SlotStatus.EMPTY))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ConflictException.class, () -> service.create(
+                driver(), requestForSlot(OffsetDateTime.now().plusHours(1), slotId)));
+
+        verify(reservationRepository, never()).save(any());
     }
 
     /** BR-009-1: a driver may only book against a plate an operator verified as theirs. */

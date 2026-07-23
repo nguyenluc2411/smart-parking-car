@@ -7,8 +7,9 @@ import 'driver_auth_controller.dart';
 import 'my_invoices_screen.dart';
 import 'my_sessions_screen.dart';
 import 'my_vehicles_screen.dart';
+import 'reservations_screen.dart';
 
-/// Khung chính sau khi tài xế đăng nhập: 3 tab (Phiên · Hoá đơn · Biển số).
+/// Khung chính sau khi tài xế đăng nhập: 4 tab (Phiên · Đặt chỗ · Hoá đơn · Biển số).
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
 
@@ -19,9 +20,15 @@ class DriverHome extends ConsumerStatefulWidget {
 class _DriverHomeState extends ConsumerState<DriverHome> {
   int _index = 0;
 
-  static const _titles = ['Phiên của tôi', 'Hoá đơn của tôi', 'Biển số của tôi'];
+  static const _titles = [
+    'Phiên của tôi',
+    'Đặt chỗ',
+    'Hoá đơn của tôi',
+    'Biển số của tôi',
+  ];
   static const _tabs = [
     MySessionsScreen(),
+    ReservationsScreen(),
     MyInvoicesScreen(),
     MyVehiclesScreen(),
   ];

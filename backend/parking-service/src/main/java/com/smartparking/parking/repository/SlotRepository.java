@@ -28,4 +28,13 @@ public interface SlotRepository extends JpaRepository<Slot, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(value = "SELECT s FROM Slot s WHERE s.status = :status ORDER BY s.slotCode ASC")
     Optional<Slot> findFirstAvailable(@Param("status") SlotStatus status, Limit limit);
+
+    /**
+     * BR-009-10: claim the EXACT slot a driver picked off the map. Row-locked the same way as
+     * {@link #findFirstAvailable} so a second driver racing for the same cell cannot also get it;
+     * empty result means someone already took it since the driver's map was last fetched.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Slot s WHERE s.id = :id AND s.status = :status")
+    Optional<Slot> findByIdAndStatus(@Param("id") UUID id, @Param("status") SlotStatus status);
 }

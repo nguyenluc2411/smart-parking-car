@@ -119,3 +119,80 @@ class DriverPaymentResult {
         paidAt: j['paidAt'] as String?,
       );
 }
+
+/// Lượt đặt chỗ (BR-009). Response của POST/GET/DELETE /driver/reservations.
+/// `gridRow`/`gridCol` là ô trên bản đồ zone (BR-003-6) — có thể null nếu slot
+/// chưa được đặt tọa độ; UI phải bỏ qua map khi null, không tự đoán vị trí.
+class Reservation {
+  final String id;
+  final String plateNumber;
+  final String slotId;
+  final String slotCode;
+  final String zone;
+  final int? gridRow;
+  final int? gridCol;
+  final String startTime;
+  final String holdUntil;
+  final String status; // HELD | FULFILLED | CANCELLED | EXPIRED
+  final String? sessionId;
+  final String createdAt;
+
+  const Reservation({
+    required this.id,
+    required this.plateNumber,
+    required this.slotId,
+    required this.slotCode,
+    required this.zone,
+    required this.gridRow,
+    required this.gridCol,
+    required this.startTime,
+    required this.holdUntil,
+    required this.status,
+    required this.sessionId,
+    required this.createdAt,
+  });
+
+  factory Reservation.fromJson(Map<String, dynamic> j) => Reservation(
+        id: j['id'] as String,
+        plateNumber: j['plateNumber'] as String,
+        slotId: j['slotId'] as String,
+        slotCode: j['slotCode'] as String,
+        zone: j['zone'] as String,
+        gridRow: j['gridRow'] as int?,
+        gridCol: j['gridCol'] as int?,
+        startTime: j['startTime'] as String,
+        holdUntil: j['holdUntil'] as String,
+        status: j['status'] as String,
+        sessionId: j['sessionId'] as String?,
+        createdAt: j['createdAt'] as String,
+      );
+}
+
+/// Một ô trong bãi, dạng rút gọn cho tài xế chọn chỗ (BR-009-10, GET /driver/slots).
+/// KHÔNG có `currentSessionId`/biển của xe khác — chỉ đủ để biết ô nào trống.
+class DriverSlot {
+  final String id;
+  final String slotCode;
+  final String zone;
+  final String status; // EMPTY | OCCUPIED | RESERVED | MAINTENANCE
+  final int? gridRow;
+  final int? gridCol;
+
+  const DriverSlot({
+    required this.id,
+    required this.slotCode,
+    required this.zone,
+    required this.status,
+    required this.gridRow,
+    required this.gridCol,
+  });
+
+  factory DriverSlot.fromJson(Map<String, dynamic> j) => DriverSlot(
+        id: j['id'] as String,
+        slotCode: j['slotCode'] as String,
+        zone: j['zone'] as String,
+        status: j['status'] as String,
+        gridRow: j['gridRow'] as int?,
+        gridCol: j['gridCol'] as int?,
+      );
+}

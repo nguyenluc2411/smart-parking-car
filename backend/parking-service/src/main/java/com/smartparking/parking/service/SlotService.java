@@ -3,6 +3,7 @@ package com.smartparking.parking.service;
 import com.smartparking.parking.dto.request.CreateSlotRequestDTO;
 import com.smartparking.parking.dto.request.ProvisionZoneRequestDTO;
 import com.smartparking.parking.dto.request.UpdateSlotStatusRequestDTO;
+import com.smartparking.parking.dto.response.DriverSlotDTO;
 import com.smartparking.parking.dto.response.ProvisionResultDTO;
 import com.smartparking.parking.dto.response.SlotAvailabilityResponseDTO;
 import com.smartparking.parking.dto.response.SlotResponseDTO;
@@ -16,6 +17,9 @@ public interface SlotService {
     SlotAvailabilityResponseDTO getAvailability();
 
     List<SlotResponseDTO> listSlots();
+
+    /** BR-009-10: same slots, trimmed for a driver picking a spot to book — no session identity. */
+    List<DriverSlotDTO> listForDriver();
 
     /** BR-003-4: reconcile slot occupancy against ACTIVE sessions (ground truth). ADMIN only. */
     SlotResyncResultDTO resync();

@@ -249,6 +249,10 @@ CREATE TABLE sessions (
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING | ACTIVE | CLOSED | CANCELLED | REQUIRES_ATTENTION
     entry_image_ref VARCHAR(300),   -- object key (MinIO) ảnh chụp lúc VÀO — truy vết (V4 migration)
     exit_image_ref  VARCHAR(300),   -- object key (MinIO) ảnh chụp lúc RA  — truy vết (V4 migration)
+    exit_released_at TIMESTAMPTZ,   -- cổng ra đã THỰC MỞ cho phiên này (V8 migration); NULL khi
+                                     -- status=CLOSED = đã tính phí nhưng xe CHƯA ra (chờ thanh toán,
+                                     -- BR-005-5). Khác gates.status: field này gắn với đúng 1 session,
+                                     -- không tự đảo ngược khi barie tự đóng lại (BR-006-2).
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     -- Partial unique index (V2 migration):
@@ -425,6 +429,37 @@ CREATE TABLE payment_duplicates (
 > lại sang `payment_duplicates` — xóa đi sẽ khiến vụ thu trùng biến mất không dấu vết, còn tệ hơn
 > chính cái trùng đó. Bảng này **không được ghi lúc runtime**; có dòng nào là phải đối soát với
 > cổng thanh toán và hoàn tiền nếu đúng là đã trừ hai lần.
+
+### reservation_fees (V7 migration, BR-009-11 — phí đặt chỗ)
+```sql
+-- Tách riêng khỏi `payments`: payments.invoice_id NOT NULL (mọi payment ở đó tất toán một hóa đơn
+-- gửi xe thật), còn phí đặt chỗ chưa có invoice/session nào cả lúc thu.
+CREATE TABLE reservation_fees (
+    id                      UUID PRIMARY KEY,
+    reservation_id          UUID NOT NULL,   -- tham chiếu lỏng sang parking-service, KHÔNG FK (khác DB)
+    driver_id               UUID NOT NULL,
+    plate_number            VARCHAR(15) NOT NULL,
+    reservation_start_time  TIMESTAMPTZ NOT NULL,
+    amount                  NUMERIC(12,2) NOT NULL,
+    status                  VARCHAR(20) NOT NULL,   -- PENDING | PAID | REFUNDED | FORFEITED
+    provider                VARCHAR(20) NOT NULL,   -- PAYOS
+    payos_order_code        BIGINT,
+    provider_ref            VARCHAR(100),
+    paid_at                 TIMESTAMPTZ,
+    refunded_at             TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Một lượt đặt chỗ chỉ có tối đa 1 phí đang sống (PENDING/PAID) tại một thời điểm.
+CREATE UNIQUE INDEX uq_reservation_fees_reservation_live ON reservation_fees (reservation_id)
+    WHERE status IN ('PENDING', 'PAID');
+
+-- orderCode PayOS unique theo TOÀN merchant, không riêng bảng này — check chéo cả 2 bảng lúc sinh mã.
+CREATE UNIQUE INDEX uq_reservation_fees_payos_order_code ON reservation_fees (payos_order_code)
+    WHERE payos_order_code IS NOT NULL;
+
+CREATE INDEX idx_reservation_fees_driver ON reservation_fees (driver_id);
+```
 
 ### outbox_events (Outbox Pattern – billing_db)
 ```sql

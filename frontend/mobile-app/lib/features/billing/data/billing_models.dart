@@ -201,3 +201,43 @@ class MonthlyReport {
             .toList(growable: false),
       );
 }
+
+/// Phí đặt chỗ (BR-009-11). Response của POST/GET .../reservations/{id}/fee[/refund].
+class ReservationFee {
+  final String id;
+  final String reservationId;
+  final num amount;
+  final String status; // PENDING | PAID | REFUNDED | FORFEITED
+  final String provider;
+  final String? orderCode;
+  final String? checkoutUrl;
+  final String? qrCode;
+  final String? paidAt;
+  final String? refundedAt;
+
+  const ReservationFee({
+    required this.id,
+    required this.reservationId,
+    required this.amount,
+    required this.status,
+    required this.provider,
+    required this.orderCode,
+    required this.checkoutUrl,
+    required this.qrCode,
+    required this.paidAt,
+    required this.refundedAt,
+  });
+
+  factory ReservationFee.fromJson(Map<String, dynamic> j) => ReservationFee(
+        id: j['id'] as String,
+        reservationId: j['reservationId'] as String,
+        amount: j['amount'] as num,
+        status: j['status'] as String,
+        provider: j['provider'] as String,
+        orderCode: j['orderCode'] as String?,
+        checkoutUrl: j['checkoutUrl'] as String?,
+        qrCode: j['qrCode'] as String?,
+        paidAt: j['paidAt'] as String?,
+        refundedAt: j['refundedAt'] as String?,
+      );
+}

@@ -170,7 +170,8 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
         "entryTime": "2025-06-15T08:32:11Z",
         "exitTime": null,
         "durationSeconds": null,
-        "status": "ACTIVE"
+        "status": "ACTIVE",
+        "exitReleasedAt": null
       }
     ],
     "totalElements": 42,
@@ -180,6 +181,10 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
   }
 }
 ```
+> `exitReleasedAt`: non-null chỉ khi cổng ra đã **thực sự mở** cho đúng phiên này. Với xe vãng lai,
+> `status` chuyển `CLOSED` ngay khi quét biển ra (billing đã tính phí) nhưng `exitReleasedAt` vẫn
+> `null` cho tới khi `billing.payment.completed` — UI nên hiển thị 2 trạng thái này khác nhau
+> ("đã tính phí, chờ thanh toán" vs "đã ra"), không suy diễn "đã ra" chỉ từ `status=CLOSED` (BR-005-5).
 
 ### GET /api/v1/sessions/{id}
 **Response 200:**
@@ -196,6 +201,7 @@ min_confidence: float # optional, mặc định = ngưỡng runtime — confiden
     "exitTime": null,
     "durationSeconds": null,
     "status": "ACTIVE",
+    "exitReleasedAt": null,
     "entryImageUrl": "http://localhost:9000/parking-frames/frames/2025/06/15/GATE_ENTRY_01/IN_...jpg?X-Amz-...",
     "exitImageUrl": null,
     "entryPlateImageUrl": "http://localhost:9000/parking-frames/frames/2025/06/15/GATE_ENTRY_01/IN_....plate.jpg?X-Amz-...",
@@ -1022,15 +1028,35 @@ with no body it is a client-side logout (no-op server-side).
 ### parking-service (:8081) — Driver reservations (BR-009)
 
 > Đặt chỗ **rút một slot thật ra khỏi pool** (`EMPTY` → `RESERVED`), nên `RESERVED` được tính là
-> **đã dùng** ở mọi phép đếm sức chứa (BR-009-4). Slot do **server chọn** — client không được chỉ
-> định: nhận `slotId` từ client sẽ lộ sơ đồ bãi và mời gọi script vợt các chỗ đẹp.
+> **đã dùng** ở mọi phép đếm sức chứa (BR-009-4). Tài xế có thể để **server tự chọn** slot, hoặc tự
+> chọn zone + ô cụ thể qua `GET /api/v1/driver/slots` rồi truyền `slotId` (BR-009-10) — không lộ
+> biển/phiên của xe khác, chỉ lộ trạng thái ô.
+
+#### GET /api/v1/driver/slots
+**Auth:** DRIVER
+**Mô tả:** Toàn bộ slot trong bãi, để app vẽ bản đồ theo zone cho tài xế chọn trước khi đặt (BR-009-10).
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "uuid", "slotCode": "A05", "zone": "A", "status": "EMPTY", "gridRow": 0, "gridCol": 4 },
+    { "id": "uuid", "slotCode": "A06", "zone": "A", "status": "OCCUPIED", "gridRow": 0, "gridCol": 5 }
+  ]
+}
+```
+`status` ∈ `EMPTY | OCCUPIED | RESERVED | MAINTENANCE`. **Không** có `currentSessionId` hay bất kỳ
+định danh biển/phiên nào — driver chỉ thấy ô nào trống, không thấy xe ai đang đậu đâu. `gridRow`/
+`gridCol` có thể `null` (slot chưa được đặt tọa độ) — client bỏ qua ô đó khi vẽ lưới, không đoán vị trí.
 
 #### POST /api/v1/driver/reservations
 **Auth:** DRIVER
 **Request:**
 ```json
-{ "plateNumber": "51F-12345", "startTime": "2026-07-23T08:00:00+07:00" }
+{ "plateNumber": "51F-12345", "startTime": "2026-07-23T08:00:00+07:00", "slotId": "uuid" }
 ```
+`slotId` **tùy chọn** (BR-009-10) — lấy từ `GET /api/v1/driver/slots`. Bỏ qua thì server tự chọn slot
+`EMPTY` đầu tiên như trước.
 **Response 200:**
 ```json
 {
@@ -1059,7 +1085,8 @@ tự đoán vị trí.
 - **403** — `plateNumber` không nằm trong claim `plates` (biển chưa được duyệt cho tài khoản này, BR-009-1).
 - **409** `startTime` ở quá khứ (quá 5 phút) · xa hơn `max-lead-hours` (mặc định 72h) ·
   biển đã có một lượt `HELD` (BR-009-5) · biển bị **tạm khóa** vì bỏ hẹn ≥3 lần/30 ngày (BR-009-8) ·
-  **bãi hết chỗ trống để đặt** (BR-009-3).
+  **bãi hết chỗ trống để đặt** (BR-009-3) · `slotId` đã chỉ định **không còn trống** — ai đó vừa lấy
+  mất trong lúc tài xế đang xem bản đồ, chọn ô khác (BR-009-10).
 
 #### GET /api/v1/driver/reservations
 **Auth:** DRIVER
@@ -1078,6 +1105,45 @@ tự đoán vị trí.
 · → `EXPIRED` (quá `holdUntil` mà xe chưa tới — tính là **một lần bỏ hẹn**, BR-009-8).
 Xe có lượt `HELD` còn sống khi quét VÀO sẽ nhận **đúng slot đã giữ**, kể cả lúc bãi đang báo đầy
 (BR-009-6).
+
+### billing-service (:8082) — Reservation booking fee (BR-009-11)
+
+> billing-service không đọc trực tiếp DB của parking-service (Database Per Service) — client
+> (app tài xế) truyền `plateNumber`/`reservationStartTime` khi tạo phí. `reservationId` trong path
+> là id lượt đặt chỗ ở parking-service, chỉ dùng làm tham chiếu, không FK.
+
+#### POST /api/v1/driver/reservations/{reservationId}/fee
+**Auth:** DRIVER
+**Mô tả:** Tạo phí đặt chỗ = `30% × min_charge` (rate đang hiệu lực) + link thanh toán PayOS.
+**Request:** `{ "plateNumber": "51F-12345", "reservationStartTime": "2026-07-23T08:00:00+07:00" }`
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid", "reservationId": "uuid", "amount": 4500, "status": "PENDING",
+    "provider": "PAYOS", "orderCode": "1721700000",
+    "checkoutUrl": "https://pay.payos.vn/web/...", "qrCode": "00020101...",
+    "paidAt": null, "refundedAt": null
+  }
+}
+```
+`checkoutUrl`/`qrCode` chỉ có khi `status=PENDING`. Chuyển `PAID` qua webhook PayOS (dùng chung
+`POST /api/v1/billing/payos/webhook` với hóa đơn — cùng orderCode-space, không endpoint mới).
+**Lỗi:** 409 nếu lượt đặt đã có phí `PENDING`/`PAID`.
+
+#### GET /api/v1/driver/reservations/{reservationId}/fee
+**Auth:** DRIVER
+**Response 200:** shape như trên. 404 nếu chưa tạo phí hoặc không thuộc tài khoản.
+
+#### POST /api/v1/driver/reservations/{reservationId}/fee/refund
+**Auth:** DRIVER
+**Mô tả:** Gọi lúc hủy đặt chỗ (BR-009-11). Hủy `PENDING` → hủy link thanh toán, coi như `REFUNDED`
+(chưa từng trả tiền). Đã `PAID`: hủy trước `startTime` ≥ 30 phút → `REFUNDED`; sát giờ hơn → `FORFEITED`.
+Gọi lại khi đã `REFUNDED`/`FORFEITED` → idempotent, trả nguyên trạng thái cũ.
+**Response 200:** shape như trên, `status` đã cập nhật.
+**Lưu ý:** hoàn tiền hiện là **mock** — chỉ cập nhật trạng thái trong DB, không gọi API hoàn tiền
+thật của PayOS (chưa tích hợp).
 
 ### billing-service (:8082) — Driver invoices & online payment
 

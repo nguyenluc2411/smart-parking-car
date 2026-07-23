@@ -197,9 +197,39 @@ class AlprService:
         img = self._enhance(image) if enhance else image
         if getattr(img, "ndim", 3) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        result = self._paddle_instance().ocr(img, cls=True)
+        result = self._paddle_ocr_with_retry(img)
+        if result is None:
+            # Paddle crashed twice in a row (see _paddle_ocr_with_retry) — fall back to EasyOCR
+            # for THIS read rather than reporting no plate at all. Lower accuracy than paddle, but
+            # still far better than an outright rejection of a perfectly clear plate.
+            logger.warning("PaddleOCR unusable for this frame — falling back to EasyOCR")
+            reader = self._reader_instance()
+            return reader.readtext(img, detail=1, allowlist=_OCR_ALLOWLIST)
         lines = result[0] if result and result[0] else []
         return [(ln[0], ln[1][0], float(ln[1][1])) for ln in lines]
+
+    def _paddle_ocr_with_retry(self, img):
+        """Call PaddleOCR, retrying once on the oneDNN ``could not execute a primitive`` crash.
+
+        Reproduced live (not in isolated scripts): under the real server's concurrency (event
+        loop + Kafka consumer + periodic /health polling all sharing the process), oneDNN's
+        internal predictor occasionally fails to execute for a request even though the exact
+        same image/crop reads fine called standalone. Root cause not fully pinned (looks like a
+        thread/contention-sensitive oneDNN issue, not image-specific). Returns ``None`` (instead
+        of raising) if it still fails after one retry, so the caller can fall back to EasyOCR."""
+        try:
+            return self._paddle_instance().ocr(img, cls=True)
+        except RuntimeError as exc:
+            if "could not execute a primitive" not in str(exc):
+                raise
+            logger.warning("PaddleOCR primitive execution failed, retrying once: %s", exc)
+        try:
+            return self._paddle_instance().ocr(img, cls=True)
+        except RuntimeError as exc:
+            if "could not execute a primitive" not in str(exc):
+                raise
+            logger.error("PaddleOCR primitive execution failed again: %s", exc)
+            return None
 
     def _ocr_best(self, crop):
         """Multi-candidate OCR for one crop/frame. Returns ``(Detection|None, grammar_ctx, reads)``
@@ -679,6 +709,13 @@ class AlprService:
             import os  # noqa: WPS433
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
             from paddleocr import PaddleOCR  # noqa: WPS433 (lazy heavy import)
-            logger.info("Initialising PaddleOCR (lang=en, angle_cls=True)")
-            self._paddle = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+            logger.info("Initialising PaddleOCR (lang=en, angle_cls=True, mkldnn=False)")
+            # enable_mkldnn=False: oneDNN crashes ("could not execute a primitive") on some
+            # crop/frame shapes under the Docker container's (virtualized) CPU — reproduced with
+            # a real gate photo that read fine locally on Windows with the same paddle version.
+            # The crash is swallowed by detect()'s try/except and surfaces as an indistinguishable
+            # LOW_CONFIDENCE rejection, so a genuinely clear plate silently fails. Disabling mkldnn
+            # fixed it with no measured accuracy loss; paddle w/o mkldnn is still far faster than
+            # EasyOCR (see tools/bench_paddle.py).
+            self._paddle = PaddleOCR(use_angle_cls=True, lang="en", show_log=False, enable_mkldnn=False)
         return self._paddle

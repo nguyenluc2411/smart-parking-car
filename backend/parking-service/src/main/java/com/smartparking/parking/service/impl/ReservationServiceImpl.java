@@ -96,10 +96,18 @@ public class ReservationServiceImpl implements ReservationService {
                             .formatted(plate, noShows, noShowWindowDays));
         }
 
-        // BR-009-3: take a real slot out of the pool. Row-locked so two drivers racing for the last
-        // slot cannot both be given it.
-        Slot slot = slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
-                .orElseThrow(() -> new ConflictException("BR-009-4: bãi đã hết chỗ trống để đặt"));
+        // BR-009-3/BR-009-10: take a real slot out of the pool — the one the driver picked off the
+        // map if they named one, otherwise the first EMPTY slot. Both paths are row-locked so two
+        // drivers racing for the same slot cannot both be given it.
+        Slot slot;
+        if (request.slotId() != null) {
+            slot = slotRepository.findByIdAndStatus(request.slotId(), SlotStatus.EMPTY)
+                    .orElseThrow(() -> new ConflictException(
+                            "Ô đã chọn không còn trống — vui lòng chọn ô khác"));
+        } else {
+            slot = slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
+                    .orElseThrow(() -> new ConflictException("BR-009-4: bãi đã hết chỗ trống để đặt"));
+        }
         slot.setStatus(SlotStatus.RESERVED);
         slot.setCurrentSessionId(null);
         slotRepository.save(slot);

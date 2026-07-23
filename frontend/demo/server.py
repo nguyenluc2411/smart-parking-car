@@ -328,6 +328,22 @@ async def _availability(client) -> dict:
         return {}
 
 
+async def _slot_map(client, slot_code: str) -> dict | None:
+    """Tọa độ lưới (BR-003-6) của slot vừa gán, để demo vẽ bản đồ MINH HỌA cho xe walk-in biết
+    chỗ của mình ở đâu — không phải chọn chỗ, chỉ xem sau khi hệ thống đã tự gán (BR-003-2/3).
+    Dùng GET /api/v1/slots (admin-scoped, server.py đã có sẵn token) vì đây không phải luồng
+    driver — kiosk không biết tài khoản tài xế nào đang đứng trước camera."""
+    try:
+        r = await _auth_get(client, f"{PARKING_URL}/api/v1/slots")
+        for s in (r.json().get("data") or []):
+            if s.get("slotCode") == slot_code:
+                return {"slotCode": slot_code, "zone": s.get("zone"),
+                        "gridRow": s.get("gridRow"), "gridCol": s.get("gridCol")}
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 @app.get("/api/availability")
 async def availability():
     """Số chỗ trống / đang dùng để hiển thị trên demo (nguồn: parking-service)."""
@@ -370,7 +386,8 @@ async def outcome(plate: str, direction: str):
                         "result": "ADMITTED", "barrier": True,
                         "message": f"✅ Mở barie cho XE VÀO — {plate_n}"
                                    + (f" · chỗ {slot}" if slot else "") + ".",
-                        "availability": await _availability(c)})
+                        "availability": await _availability(c),
+                        "slotMap": await _slot_map(c, slot) if slot else None})
                 await asyncio.sleep(0.7)
 
             avail = await _availability(c)
