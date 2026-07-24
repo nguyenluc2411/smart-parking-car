@@ -14,6 +14,7 @@ public record SlotResponseDTO(
         UUID id,
         String slotCode,
         String zone,
+        UUID zoneId,
         SlotStatus status,
         UUID currentSessionId,
         Integer gridRow,

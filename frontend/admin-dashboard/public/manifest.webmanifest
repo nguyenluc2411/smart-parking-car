@@ -1,0 +1,17 @@
+{
+  "name": "Smart Parking Emergency Console",
+  "short_name": "Parking Booth",
+  "description": "Vận hành cổng phụ và lưu sự kiện khi bãi xe mất mạng",
+  "start_url": "/outage",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

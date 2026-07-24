@@ -69,6 +69,13 @@ public class Session {
     @Column(name = "exit_released_at")
     private OffsetDateTime exitReleasedAt;
 
+    /** Client-generated idempotency keys used when an offline PWA replays outage events. */
+    @Column(name = "outage_entry_event_id", unique = true)
+    private UUID outageEntryEventId;
+
+    @Column(name = "outage_exit_event_id", unique = true)
+    private UUID outageExitEventId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private SessionStatus status;

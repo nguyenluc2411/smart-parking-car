@@ -45,6 +45,17 @@ public class Gate {
     @Column(name = "status", nullable = false, length = 20)
     private GateStatus status;
 
+    /** False for the auxiliary outage gate, which has no physical barrier to command. */
+    @Builder.Default
+    @Column(name = "has_barrier", nullable = false)
+    private boolean hasBarrier = true;
+
+    @Column(name = "parking_lot_id")
+    private UUID parkingLotId;
+
+    @Column(name = "floor_id")
+    private UUID floorId;
+
     @Column(name = "last_command", length = 20)
     private String lastCommand;
 

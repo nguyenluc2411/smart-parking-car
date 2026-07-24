@@ -30,6 +30,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
     /** BR-009-3: is this slot promised to someone right now? Guards admin edits of the slot. */
     boolean existsBySlotIdAndStatus(UUID slotId, ReservationStatus status);
 
+    boolean existsBySlotId(UUID slotId);
+
     /** BR-009-2: holds whose grace has run out — swept back into the pool. */
     @Query("SELECT r FROM Reservation r WHERE r.status = 'HELD' AND r.holdUntil < :now")
     List<Reservation> findExpired(@Param("now") OffsetDateTime now);

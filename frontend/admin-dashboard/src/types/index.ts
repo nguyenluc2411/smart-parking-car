@@ -47,6 +47,7 @@ export interface Slot {
   id: string;
   slotCode: string;
   zone: string;
+  zoneId: string | null;
   status: SlotStatus;
   currentSessionId: string | null;
   /** Position on the zone map (BR-003-6); null for slots created before the map existed. */
@@ -140,6 +141,10 @@ export interface Gate {
   gateCode: string;
   direction: GateDirection;
   status: GateStatus;
+  /** False for the auxiliary outage gate, which is a physical lane without a barrier. */
+  hasBarrier: boolean;
+  parkingLotId: string | null;
+  floorId: string | null;
   lastCommand: string | null;
   lastCommandAt: string | null;
 }
@@ -147,6 +152,120 @@ export interface Gate {
 export interface GateOverrideRequest {
   command: GateCommand;
   reason: string;
+}
+
+export type OutageEventType = "ENTRY" | "EXIT";
+
+export interface OutageEventRequest {
+  clientEventId: string;
+  type: OutageEventType;
+  plateNumber: string;
+  gateId: string;
+  /** Actual capture time. The server uses this value instead of synchronization time. */
+  occurredAt: string;
+  note: string;
+}
+
+export interface QueuedOutageEvent extends OutageEventRequest {
+  status: "PENDING" | "FAILED";
+  queuedAt: string;
+  lastError?: string;
+}
+
+export interface ParkingLot {
+  id: string;
+  lotCode: string;
+  name: string;
+  address: string | null;
+  active: boolean;
+}
+
+export type LayoutElementType = "SLOT" | "GATE" | "BARRIER" | "ROAD" | "LABEL" | "ZONE";
+
+export interface ParkingLayoutElement {
+  id: string;
+  type: LayoutElementType;
+  referenceId: string | null;
+  label: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  properties: Record<string, string>;
+}
+
+export interface ParkingLayout {
+  parkingLotId: string;
+  floorId: string;
+  canvasWidth: number;
+  canvasHeight: number;
+  draftVersion: number;
+  publishedVersion: number;
+  publishedAt: string | null;
+  elements: ParkingLayoutElement[];
+}
+
+export interface ParkingZone {
+  id: string;
+  zoneCode: string;
+  name: string;
+  slotCount: number;
+}
+
+export interface ParkingFloor {
+  id: string;
+  floorCode: string;
+  name: string;
+  sortOrder: number;
+  zones: ParkingZone[];
+}
+
+export interface ParkingStructure {
+  lot: ParkingLot;
+  floors: ParkingFloor[];
+}
+
+export interface CreateParkingLotRequest {
+  lotCode: string;
+  name: string;
+  address: string;
+  createTemplate: boolean;
+  groundZoneCount?: number;
+  slotsPerZone?: number;
+}
+
+export interface UpdateParkingLotRequest {
+  name: string;
+  address: string;
+}
+
+export interface UpdateNameRequest {
+  name: string;
+}
+
+export interface SlotCodeRequest {
+  slotCode: string;
+}
+
+export interface CreateFloorRequest {
+  floorCode: string;
+  name: string;
+  zoneCount?: number;
+  slotsPerZone?: number;
+}
+
+export interface CreateZoneRequest {
+  zoneCode: string;
+  name: string;
+  initialSlots: number;
+}
+
+export interface SaveParkingLayoutRequest {
+  expectedVersion: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  elements: ParkingLayoutElement[];
 }
 
 // ─── Vehicles ─────────────────────────────────────────────

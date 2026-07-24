@@ -11,6 +11,9 @@ public record GateResponseDTO(
         String gateCode,
         GateDirection direction,
         GateStatus status,
+        boolean hasBarrier,
+        UUID parkingLotId,
+        UUID floorId,
         String lastCommand,
         OffsetDateTime lastCommandAt
 ) {

@@ -39,6 +39,9 @@ public class Slot {
     @Column(name = "zone", nullable = false, length = 5)
     private String zone;
 
+    @Column(name = "zone_id")
+    private UUID zoneId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private SlotStatus status;

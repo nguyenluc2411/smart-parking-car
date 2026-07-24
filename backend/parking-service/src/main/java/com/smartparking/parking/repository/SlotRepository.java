@@ -17,9 +17,32 @@ public interface SlotRepository extends JpaRepository<Slot, UUID> {
 
     long countByStatus(SlotStatus status);
 
+    @Query("""
+            SELECT COUNT(s) FROM Slot s
+            WHERE s.zoneId IN (
+              SELECT z.id FROM ParkingZone z WHERE z.floorId IN (
+                SELECT f.id FROM ParkingFloor f WHERE f.parkingLotId = :lotId
+              )
+            )
+            """)
+    long countForLot(@Param("lotId") UUID lotId);
+
+    @Query("""
+            SELECT COUNT(s) FROM Slot s
+            WHERE s.status = :status AND s.zoneId IN (
+              SELECT z.id FROM ParkingZone z WHERE z.floorId IN (
+                SELECT f.id FROM ParkingFloor f WHERE f.parkingLotId = :lotId
+              )
+            )
+            """)
+    long countByStatusForLot(@Param("status") SlotStatus status, @Param("lotId") UUID lotId);
+
     boolean existsBySlotCode(String slotCode);
 
     java.util.List<Slot> findByZoneOrderBySlotCodeAsc(String zone);
+    java.util.List<Slot> findByZoneIdOrderBySlotCodeAsc(UUID zoneId);
+    boolean existsByZoneIdAndSlotCode(UUID zoneId, String slotCode);
+    long countByZoneId(UUID zoneId);
 
     /**
      * BR-003-2/3: pick one EMPTY slot to assign, skipping MAINTENANCE.
@@ -28,6 +51,30 @@ public interface SlotRepository extends JpaRepository<Slot, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(value = "SELECT s FROM Slot s WHERE s.status = :status ORDER BY s.slotCode ASC")
     Optional<Slot> findFirstAvailable(@Param("status") SlotStatus status, Limit limit);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT s FROM Slot s
+            WHERE s.status = :status AND s.zoneId IN (
+              SELECT z.id FROM ParkingZone z WHERE z.floorId IN (
+                SELECT f.id FROM ParkingFloor f WHERE f.parkingLotId = :lotId
+              )
+            )
+            ORDER BY s.slotCode ASC
+            """)
+    Optional<Slot> findFirstAvailableForLot(@Param("status") SlotStatus status,
+                                            @Param("lotId") UUID lotId,
+                                            Limit limit);
+
+    @Query("""
+            SELECT COUNT(s) > 0 FROM Slot s
+            WHERE s.id = :slotId AND s.zoneId IN (
+              SELECT z.id FROM ParkingZone z WHERE z.floorId IN (
+                SELECT f.id FROM ParkingFloor f WHERE f.parkingLotId = :lotId
+              )
+            )
+            """)
+    boolean belongsToLot(@Param("slotId") UUID slotId, @Param("lotId") UUID lotId);
 
     /**
      * BR-009-10: claim the EXACT slot a driver picked off the map. Row-locked the same way as
