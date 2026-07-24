@@ -12,6 +12,7 @@ EasyOCR reader is created once and reused (it is expensive to build).
 """
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import time
 from dataclasses import dataclass
@@ -156,6 +157,15 @@ class AlprService:
         self._vehicle_model = None  # YOLOv8n COCO — vehicle presence in ROI
         self._reader = None      # EasyOCR reader, lazily loaded + reused
         self._paddle = None      # PaddleOCR reader, lazily loaded + reused
+        # PaddleOCR's predictor is bound to whichever OS thread first initialises it — calling
+        # .ocr() from any OTHER thread reliably throws oneDNN's "could not execute a primitive"
+        # (confirmed: reproducible from a fresh thread even with zero concurrency; a lock does
+        # NOT fix this, since it's a thread-identity issue, not a race). FastAPI's run_in_threadpool
+        # dispatches each request onto a rotating pool of worker threads, so every real request hit
+        # this. Routing every call through one dedicated single-worker executor pins the predictor
+        # (lazy-inited on that same thread) to one fixed OS thread for the process lifetime.
+        self._paddle_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="paddle-ocr")
 
     def _prep(self, image):
         """Return the image to OCR — enhanced (upscale/contrast/denoise) when preprocessing is on."""
@@ -209,14 +219,19 @@ class AlprService:
         return [(ln[0], ln[1][0], float(ln[1][1])) for ln in lines]
 
     def _paddle_ocr_with_retry(self, img):
-        """Call PaddleOCR, retrying once on the oneDNN ``could not execute a primitive`` crash.
+        """Call PaddleOCR, always on the dedicated ``_paddle_executor`` thread, retrying once on
+        the oneDNN ``could not execute a primitive`` crash.
 
-        Reproduced live (not in isolated scripts): under the real server's concurrency (event
-        loop + Kafka consumer + periodic /health polling all sharing the process), oneDNN's
-        internal predictor occasionally fails to execute for a request even though the exact
-        same image/crop reads fine called standalone. Root cause not fully pinned (looks like a
-        thread/contention-sensitive oneDNN issue, not image-specific). Returns ``None`` (instead
-        of raising) if it still fails after one retry, so the caller can fall back to EasyOCR."""
+        Root cause (confirmed by isolated repro, not just theorised): the crash is thread-identity,
+        not a race. Calling the same predictor from a NEW OS thread — even one at a time, zero
+        overlap — throws it; the exact same call from the thread that lazily initialised it always
+        works. FastAPI's run_in_threadpool dispatches each request onto a rotating worker-thread
+        pool, so almost every real request landed on a "wrong" thread. Submitting to a single-worker
+        executor pins every call (including the lazy predictor init) to one fixed thread, which
+        eliminates the crash outright. The retry/None fallback stays as a defense-in-depth net."""
+        return self._paddle_executor.submit(self._paddle_ocr_call, img).result()
+
+    def _paddle_ocr_call(self, img):
         try:
             return self._paddle_instance().ocr(img, cls=True)
         except RuntimeError as exc:
