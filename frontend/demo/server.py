@@ -30,6 +30,7 @@ ADMIN_URL = os.getenv("ADMIN_URL", "http://localhost:8083")
 EDGE_API_KEY = os.getenv("EDGE_API_KEY", "8f7a2d1c9e4b6f8a3d5e7c1b9a2f4d6e")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "12345678!")  # khớp ADMIN_SEED_PASSWORD trong .env
+EXIT_GATE_CODE = "GATE_EXIT_01"  # khớp gate_id demo dùng khi POST /detect direction=OUT (index.html)
 
 INDEX = Path(__file__).with_name("index.html")
 app = FastAPI(title="smart-parking-demo")
@@ -328,17 +329,44 @@ async def _availability(client) -> dict:
         return {}
 
 
+async def _gate_open(client, gate_code: str) -> bool:
+    """Trạng thái barie THẬT (nguồn: parking-service, không phải suy đoán). Cần cho nhánh xe RA
+    không khớp session — mặc định exit-policy=require-match giữ barie ĐÓNG (BR-006-5), báo cứng
+    "đã mở" là sai và mâu thuẫn với animation barie thật hiển thị cùng trang."""
+    try:
+        r = await _auth_get(client, f"{PARKING_URL}/api/v1/gates")
+        for g in (r.json().get("data") or []):
+            if g.get("gateCode") == gate_code:
+                return g.get("status") == "OPEN"
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 async def _slot_map(client, slot_code: str) -> dict | None:
     """Tọa độ lưới (BR-003-6) của slot vừa gán, để demo vẽ bản đồ MINH HỌA cho xe walk-in biết
     chỗ của mình ở đâu — không phải chọn chỗ, chỉ xem sau khi hệ thống đã tự gán (BR-003-2/3).
     Dùng GET /api/v1/slots (admin-scoped, server.py đã có sẵn token) vì đây không phải luồng
-    driver — kiosk không biết tài khoản tài xế nào đang đứng trước camera."""
+    driver — kiosk không biết tài khoản tài xế nào đang đứng trước camera.
+
+    Kèm theo mã + trạng thái các slot khác CÙNG ZONE đã có tọa độ, để trang demo hiện đúng mã ô
+    thật lên từng ô lưới thay vì chấm trống vô nghĩa."""
     try:
         r = await _auth_get(client, f"{PARKING_URL}/api/v1/slots")
-        for s in (r.json().get("data") or []):
-            if s.get("slotCode") == slot_code:
-                return {"slotCode": slot_code, "zone": s.get("zone"),
-                        "gridRow": s.get("gridRow"), "gridCol": s.get("gridCol")}
+        all_slots = r.json().get("data") or []
+        mine = next((s for s in all_slots if s.get("slotCode") == slot_code), None)
+        if not mine:
+            return None
+        zone = mine.get("zone")
+        zone_slots = [
+            {"slotCode": s.get("slotCode"), "gridRow": s.get("gridRow"),
+             "gridCol": s.get("gridCol"), "status": s.get("status")}
+            for s in all_slots
+            if s.get("zone") == zone and s.get("gridRow") is not None and s.get("gridCol") is not None
+        ]
+        return {"slotCode": slot_code, "zone": zone,
+                "gridRow": mine.get("gridRow"), "gridCol": mine.get("gridCol"),
+                "zoneSlots": zone_slots}
     except Exception:  # noqa: BLE001
         pass
     return None
@@ -375,12 +403,26 @@ async def outcome(plate: str, direction: str):
                     "message": f"🚫 Biển {plate_n} trong BLACKLIST — TỪ CHỐI vào, barie KHÔNG mở.",
                     "availability": await _availability(c)})
 
+            # BR-002-4: nếu plate đã có 1 session ACTIVE TỪ TRƯỚC lần quét này, việc query
+            # "ACTIVE session của plate X" bên dưới sẽ luôn thấy CÓ kết quả — kể cả khi lần quét
+            # này bị parking-service TỪ CHỐI (xe đã trong bãi, nghi biển giả/clone) và không hề
+            # tạo session mới. Phải chụp lại session ACTIVE (nếu có) TRƯỚC khi poll, rồi so khớp
+            # id để biết chắc lần quét này có thực sự vừa admit hay không.
+            pre_active = None
+            try:
+                rp = await _auth_get(c, f"{PARKING_URL}/api/v1/sessions",
+                                     params={"plate": plate_n, "status": "ACTIVE", "size": 1, "page": 0})
+                pre_items = (rp.json().get("data") or {}).get("content") or []
+                pre_active = pre_items[0] if pre_items else None
+            except Exception:  # noqa: BLE001
+                pass
+
             # Xe được nhận → parking tạo session ACTIVE. Chờ tối đa ~4s.
             for _ in range(6):
                 rs = await _auth_get(c, f"{PARKING_URL}/api/v1/sessions",
                                      params={"plate": plate_n, "status": "ACTIVE", "size": 1, "page": 0})
                 items = (rs.json().get("data") or {}).get("content") or []
-                if items:
+                if items and (pre_active is None or items[0].get("id") != pre_active.get("id")):
                     slot = items[0].get("slotCode")
                     return JSONResponse({
                         "result": "ADMITTED", "barrier": True,
@@ -390,6 +432,18 @@ async def outcome(plate: str, direction: str):
                         "slotMap": await _slot_map(c, slot) if slot else None})
                 await asyncio.sleep(0.7)
 
+            if pre_active is not None:
+                # Vẫn là session CŨ, không có session mới nào được tạo trong lúc chờ — đúng
+                # BR-002-4: xe này đã ở trong bãi, lần quét này bị từ chối, barie KHÔNG mở.
+                slot = pre_active.get("slotCode")
+                return JSONResponse({
+                    "result": "ALREADY_PARKED", "barrier": False,
+                    "message": f"⚠️ Biển {plate_n} ĐÃ CÓ TRONG BÃI"
+                               + (f" (chỗ {slot})" if slot else "") + " — barie KHÔNG mở lần nữa"
+                               " (nghi biển giả/clone, đã ghi cảnh báo CRITICAL cho vận hành viên).",
+                    "availability": await _availability(c),
+                    "slotMap": await _slot_map(c, slot) if slot else None})
+
             avail = await _availability(c)
             if avail.get("emptySlots") == 0:
                 return JSONResponse({
@@ -398,15 +452,35 @@ async def outcome(plate: str, direction: str):
                     "availability": avail})
             return JSONResponse({
                 "result": "NO_ENTRY", "barrier": False,
-                "message": "ℹ️ Không mở barie — xe đã có trong bãi hoặc biển không hợp lệ.",
+                "message": "ℹ️ Không mở barie — biển không hợp lệ hoặc ngoài giờ hoạt động.",
                 "availability": avail})
 
-        # direction OUT — cổng ra luôn mở; chỉ khác ở việc có cần thanh toán không.
+        # direction OUT. Chụp lại session ACTIVE (nếu có) TRƯỚC khi poll — cùng lý do như nhánh
+        # IN ở trên: nếu plate này có 1 session CLOSED cũ từ lần gửi xe TRƯỚC (rất dễ gặp khi
+        # test lại cùng biển số), poll "CLOSED session của plate X" sẽ luôn thấy có kết quả dù
+        # xe hiện KHÔNG hề đang ở trong bãi — báo "xe RA thành công" giả cho 1 xe không tồn tại
+        # trong bãi lúc này.
+        pre_active_id = None
+        try:
+            rp = await _auth_get(c, f"{PARKING_URL}/api/v1/sessions",
+                                 params={"plate": plate_n, "status": "ACTIVE", "size": 1, "page": 0})
+            pre_items = (rp.json().get("data") or {}).get("content") or []
+            pre_active_id = pre_items[0].get("id") if pre_items else None
+        except Exception:  # noqa: BLE001
+            pass
+
+        if pre_active_id is None:
+            return JSONResponse({
+                "result": "NOT_PARKED", "barrier": await _gate_open(c, EXIT_GATE_CODE),
+                "message": f"ℹ️ Biển {plate_n} hiện KHÔNG có trong bãi (không tìm thấy phiên "
+                           "đang hoạt động) — không có gì để cho ra.",
+                "availability": await _availability(c)})
+
         for _ in range(6):
             rs = await _auth_get(c, f"{PARKING_URL}/api/v1/sessions",
                                  params={"plate": plate_n, "status": "CLOSED", "size": 1, "page": 0})
             items = (rs.json().get("data") or {}).get("content") or []
-            if items:
+            if items and items[0]["id"] == pre_active_id:
                 sid = items[0]["id"]
                 try:
                     ri = await _auth_get(c, f"{BILLING_URL}/api/v1/billing/sessions/{sid}")
@@ -432,7 +506,13 @@ async def outcome(plate: str, direction: str):
                         "availability": await _availability(c)})
             await asyncio.sleep(0.7)
 
+        # Có session ACTIVE trước lúc quét nhưng chưa thấy nó chuyển CLOSED sau ~4s — hoặc đang xử
+        # lý chậm, hoặc (BR-006-5) không khớp và bị xếp REQUIRES_ATTENTION. exit-policy mặc định
+        # require-match giữ barie ĐÓNG trong trường hợp không khớp — không được báo cứng "đã mở".
+        gate_open = await _gate_open(c, EXIT_GATE_CODE)
         return JSONResponse({
-            "result": "EXIT_REVIEW", "barrier": True, "needsPayment": False,
-            "message": "ℹ️ Đã mở barie cho xe RA. Chưa thấy hóa đơn (xe lạ/cần đối soát) hoặc đang xử lý.",
+            "result": "EXIT_REVIEW", "barrier": gate_open, "needsPayment": False,
+            "message": (f"✅ Đã mở barie cho xe RA — {plate_n}." if gate_open else
+                        f"⏳ Chưa xác định được — xe {plate_n} chưa thấy hóa đơn, barie hiện "
+                        "vẫn ĐÓNG (có thể đang xử lý hoặc cần vận hành viên đối soát)."),
             "availability": await _availability(c)})

@@ -831,22 +831,32 @@ function renderSlotMap(m) {
   const rowStart = Math.max(0, m.gridRow - SLOT_MAP_ROW_WINDOW);
   const rowEnd = m.gridRow + SLOT_MAP_ROW_WINDOW;
   const truncatedTop = rowStart > 0;
+  // Mã slot thật + trạng thái của các ô cùng zone (server.py trả kèm) — để mỗi ô hiện đúng vị
+  // trí thật thay vì một chấm trống vô nghĩa.
+  const byPos = {};
+  (m.zoneSlots || []).forEach(s => { if (s.gridRow != null && s.gridCol != null) byPos[`${s.gridRow},${s.gridCol}`] = s; });
+  const STATUS_TINT = { OCCUPIED: 'rgba(239,68,68,.22)', RESERVED: 'rgba(234,179,8,.22)',
+                         MAINTENANCE: 'rgba(154,163,199,.22)' };
   let cells = '';
   for (let r = rowStart; r <= rowEnd; r++) {
     for (let c = 0; c < SLOT_MAP_COLS; c++) {
       const mine = (r === m.gridRow && c === m.gridCol);
+      const s = byPos[`${r},${c}`];
+      const bg = mine ? 'var(--ok)' : (s ? (STATUS_TINT[s.status] || 'var(--card)') : 'var(--card)');
+      const label = mine ? '🚗' : (s ? s.slotCode : '·');
       cells += `<div style="aspect-ratio:1;border-radius:6px;
         border:${mine ? '2px solid #fff' : '1px solid var(--line)'};
-        background:${mine ? 'var(--ok)' : 'var(--card)'};
+        background:${bg};
         box-shadow:${mine ? '0 0 0 3px rgba(34,197,94,.35)' : 'none'};
-        display:flex;align-items:center;justify-content:center;font-size:15px;
-        color:${mine ? '#fff' : 'var(--line)'}">${mine ? '🚗' : '·'}</div>`;
+        display:flex;align-items:center;justify-content:center;
+        font-size:${mine ? '15px' : '9px'};font-weight:${s && !mine ? '600' : '400'};
+        color:${mine ? '#fff' : (s ? 'var(--txt)' : 'var(--line)')}">${label}</div>`;
     }
   }
   box.innerHTML = `<div class="meta" style="margin-bottom:8px">Sơ đồ minh họa · Zone ${m.zone} — ô của bạn: <b>${m.slotCode}</b></div>
     ${truncatedTop ? '<div class="meta" style="margin-bottom:4px;opacity:.6">⋯</div>' : ''}
     <div style="display:grid;grid-template-columns:repeat(${SLOT_MAP_COLS},minmax(28px,1fr));gap:5px;max-width:460px">${cells}</div>
-    <div class="meta" style="margin-top:8px;opacity:.75">🚗 = xe của bạn</div>`;
+    <div class="meta" style="margin-top:8px;opacity:.75">🚗 = xe của bạn · đỏ = đang có xe · vàng = đã đặt trước</div>`;
   box.style.display = 'block';
 }
 
