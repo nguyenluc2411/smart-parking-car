@@ -812,7 +812,12 @@ async function resolveOutcome(direction, plate) {
 // Sơ đồ MINH HỌA vị trí slot vừa được hệ thống tự gán cho xe walk-in (BR-003-6) — chỉ để xem,
 // không phải chọn chỗ (đó là tính năng riêng của app tài xế, BR-009-10). gridRow/gridCol có thể
 // null (slot chưa có tọa độ) -> không vẽ lưới, chỉ hiện mã slot.
+//
+// TODO: đây vẫn là lưới trừu tượng dựa trên grid_row/grid_col cũ (BR-003-6), KHÔNG phải layout
+// canvas thật admin vẽ ở /parking-map (parking_layouts.published_elements) — 2 hệ dữ liệu tách
+// biệt, xem trao đổi phiên làm việc 2026-07-24. Nối vào layout thật là việc riêng, chưa làm.
 const SLOT_MAP_COLS = 10; // khớp GRID_COLUMNS ở SlotServiceImpl
+const SLOT_MAP_ROW_WINDOW = 2; // số hàng đệm hiển thị phía trên/dưới ô của xe
 function renderSlotMap(m) {
   const box = $('#slotMapBox');
   if (!m || !m.slotCode) { box.style.display = 'none'; box.innerHTML = ''; return; }
@@ -821,18 +826,27 @@ function renderSlotMap(m) {
     box.style.display = 'block';
     return;
   }
-  const rows = m.gridRow + 2;
+  // Chỉ vẽ một cửa sổ nhỏ quanh hàng của xe (không vẽ từ hàng 0) — nếu không, xe ở hàng xa (vd
+  // A16) sẽ tạo lưới rất cao, phải cuộn mới thấy ô của mình.
+  const rowStart = Math.max(0, m.gridRow - SLOT_MAP_ROW_WINDOW);
+  const rowEnd = m.gridRow + SLOT_MAP_ROW_WINDOW;
+  const truncatedTop = rowStart > 0;
   let cells = '';
-  for (let r = 0; r < rows; r++) {
+  for (let r = rowStart; r <= rowEnd; r++) {
     for (let c = 0; c < SLOT_MAP_COLS; c++) {
       const mine = (r === m.gridRow && c === m.gridCol);
-      cells += `<div style="aspect-ratio:1;border-radius:4px;border:1px solid var(--line,#3a3a3a);
-        background:${mine ? 'var(--ok,#2e7d32)' : 'var(--panel2,#2a2a2a)'};
-        display:flex;align-items:center;justify-content:center;font-size:9px;color:${mine?'#fff':'transparent'}">${mine?'🚗':''}</div>`;
+      cells += `<div style="aspect-ratio:1;border-radius:6px;
+        border:${mine ? '2px solid #fff' : '1px solid var(--line)'};
+        background:${mine ? 'var(--ok)' : 'var(--card)'};
+        box-shadow:${mine ? '0 0 0 3px rgba(34,197,94,.35)' : 'none'};
+        display:flex;align-items:center;justify-content:center;font-size:15px;
+        color:${mine ? '#fff' : 'var(--line)'}">${mine ? '🚗' : '·'}</div>`;
     }
   }
-  box.innerHTML = `<div class="meta" style="margin-bottom:6px">Sơ đồ minh họa · Zone ${m.zone} — ô của bạn: <b>${m.slotCode}</b></div>
-    <div style="display:grid;grid-template-columns:repeat(${SLOT_MAP_COLS},1fr);gap:3px;max-width:320px">${cells}</div>`;
+  box.innerHTML = `<div class="meta" style="margin-bottom:8px">Sơ đồ minh họa · Zone ${m.zone} — ô của bạn: <b>${m.slotCode}</b></div>
+    ${truncatedTop ? '<div class="meta" style="margin-bottom:4px;opacity:.6">⋯</div>' : ''}
+    <div style="display:grid;grid-template-columns:repeat(${SLOT_MAP_COLS},minmax(28px,1fr));gap:5px;max-width:460px">${cells}</div>
+    <div class="meta" style="margin-top:8px;opacity:.75">🚗 = xe của bạn</div>`;
   box.style.display = 'block';
 }
 
