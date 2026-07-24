@@ -69,7 +69,9 @@ public class GateServiceImpl implements GateService {
         gate.setLastCommandAt(OffsetDateTime.now());
         gateRepository.save(gate);
 
-        recordGateCommand(gate, command);
+        if (gate.isHasBarrier()) {
+            recordGateCommand(gate, command);
+        }
 
         log.warn("Gate override by ADMIN:{} on gate {} -> {} (reason: {})",
                 operatorId, gate.getGateCode(), command, request.reason());
@@ -107,7 +109,8 @@ public class GateServiceImpl implements GateService {
 
     private GateResponseDTO toResponse(Gate gate) {
         return new GateResponseDTO(gate.getId(), gate.getGateCode(), gate.getDirection(),
-                gate.getStatus(), gate.getLastCommand(), gate.getLastCommandAt());
+                gate.getStatus(), gate.isHasBarrier(), gate.getParkingLotId(), gate.getFloorId(),
+                gate.getLastCommand(), gate.getLastCommandAt());
     }
 
     private void recordGateCommand(Gate gate, GateCommand command) {

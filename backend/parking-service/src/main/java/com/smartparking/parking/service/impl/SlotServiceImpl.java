@@ -305,7 +305,7 @@ public class SlotServiceImpl implements SlotService {
     }
 
     private SlotResponseDTO toResponse(Slot s) {
-        return new SlotResponseDTO(s.getId(), s.getSlotCode(), s.getZone(),
+        return new SlotResponseDTO(s.getId(), s.getSlotCode(), s.getZone(), s.getZoneId(),
                 s.getStatus(), s.getCurrentSessionId(), s.getGridRow(), s.getGridCol());
     }
 }

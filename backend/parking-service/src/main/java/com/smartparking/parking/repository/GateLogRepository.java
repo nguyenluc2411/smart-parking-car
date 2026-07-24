@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface GateLogRepository extends JpaRepository<GateLog, UUID> {
+    boolean existsByGateId(UUID gateId);
 }

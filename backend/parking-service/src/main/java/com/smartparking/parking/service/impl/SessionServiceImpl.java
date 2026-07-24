@@ -16,6 +16,7 @@ import com.smartparking.parking.entity.Vehicle;
 import com.smartparking.parking.entity.enums.AlertSeverity;
 import com.smartparking.parking.entity.enums.AlertType;
 import com.smartparking.parking.entity.enums.GateCommand;
+import com.smartparking.parking.entity.enums.GateDirection;
 import com.smartparking.parking.entity.enums.GateStatus;
 import com.smartparking.parking.entity.enums.SessionStatus;
 import com.smartparking.parking.entity.enums.SlotStatus;
@@ -208,6 +209,10 @@ public class SessionServiceImpl implements SessionService {
         Optional<Reservation> hold = reservationService.findLiveHold(plate);
         Slot slot;
         if (hold.isPresent()) {
+            if (gate.getParkingLotId() != null
+                    && !slotRepository.belongsToLot(hold.get().getSlotId(), gate.getParkingLotId())) {
+                throw new ConflictException("Booking belongs to another parking lot; use its entry gate");
+            }
             slot = slotRepository.findById(hold.get().getSlotId())
                     .orElseThrow(() -> new ConflictException(
                             "BR-009-6: slot đã đặt không còn tồn tại"));
@@ -215,16 +220,24 @@ public class SessionServiceImpl implements SessionService {
             // BR-002-5 / BR-003-5 / BR-009-4: full once occupancy reaches capacity minus the
             // buffer. RESERVED counts as used — a held slot is promised to someone, and handing it
             // to a walk-in is exactly the failure a booking is supposed to prevent.
-            long totalSlots = slotRepository.count();
-            long occupiedSlots = slotRepository.countByStatus(SlotStatus.OCCUPIED)
-                    + slotRepository.countByStatus(SlotStatus.RESERVED);
+            long totalSlots = gate.getParkingLotId() == null
+                    ? slotRepository.count()
+                    : slotRepository.countForLot(gate.getParkingLotId());
+            long occupiedSlots = gate.getParkingLotId() == null
+                    ? slotRepository.countByStatus(SlotStatus.OCCUPIED)
+                        + slotRepository.countByStatus(SlotStatus.RESERVED)
+                    : slotRepository.countByStatusForLot(SlotStatus.OCCUPIED, gate.getParkingLotId())
+                        + slotRepository.countByStatusForLot(SlotStatus.RESERVED, gate.getParkingLotId());
             long effectiveCapacity =
                     totalSlots - (long) Math.ceil(totalSlots * capacityBufferPercent / 100.0);
             if (occupiedSlots >= effectiveCapacity) {
                 throw new ConflictException("BR-002-5: parking full (%d/%d occupied+reserved, buffer %d%%)"
                         .formatted(occupiedSlots, totalSlots, capacityBufferPercent));
             }
-            slot = slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
+            slot = (gate.getParkingLotId() == null
+                    ? slotRepository.findFirstAvailable(SlotStatus.EMPTY, Limit.of(1))
+                    : slotRepository.findFirstAvailableForLot(
+                            SlotStatus.EMPTY, gate.getParkingLotId(), Limit.of(1)))
                     .orElseThrow(() -> new ConflictException("BR-002-5: parking full — no empty slot"));
         }
 
@@ -247,7 +260,9 @@ public class SessionServiceImpl implements SessionService {
         gate.setLastCommandAt(OffsetDateTime.now());
         gateRepository.save(gate);
 
-        recordOutbox("Gate", gate.getId(), gateCommandTopic, buildGateCommand(gate, session));
+        if (gate.isHasBarrier()) {
+            recordOutbox("Gate", gate.getId(), gateCommandTopic, buildGateCommand(gate, session));
+        }
         recordOutbox("Session", session.getId(), sessionCreatedTopic, buildSessionCreated(session, slot, gate));
 
         log.info("Session created: sessionId={}, plate={}, slot={}, gate={}, by={}",
@@ -477,6 +492,80 @@ public class SessionServiceImpl implements SessionService {
         log.warn("Manual exit by {} for plate '{}' — no ACTIVE session, flagged REQUIRES_ATTENTION {}, "
                 + "note: {}", triggeredBy, plate, review.getId(), note);
         return review.getId();
+    }
+
+    @Override
+    @Transactional
+    public UUID outageEntry(UUID clientEventId, String plateNumber, String gateCode,
+                            OffsetDateTime occurredAt, String note, UUID operatorId) {
+        Session replayed = sessionRepository.findByOutageEntryEventId(clientEventId).orElse(null);
+        if (replayed != null) {
+            return replayed.getId();
+        }
+        validateOutageTimestamp(occurredAt);
+        String plate = requireManualPlate(plateNumber);
+        Gate gate = requireOutageGate(gateCode, GateDirection.IN);
+        Session session = admit(plate, gate, null, "OUTAGE_OPERATOR:" + operatorId, occurredAt, null);
+        session.setOutageEntryEventId(clientEventId);
+        sessionRepository.save(session);
+        log.warn("Outage entry recorded: eventId={}, plate={}, occurredAt={}, gate={}, operator={}, note={}",
+                clientEventId, plate, occurredAt, gateCode, operatorId, note);
+        return session.getId();
+    }
+
+    @Override
+    @Transactional
+    public UUID outageExit(UUID clientEventId, String plateNumber, String gateCode,
+                           OffsetDateTime occurredAt, String note, UUID operatorId) {
+        Session replayed = sessionRepository.findByOutageExitEventId(clientEventId).orElse(null);
+        if (replayed != null) {
+            return replayed.getId();
+        }
+        validateOutageTimestamp(occurredAt);
+        String plate = requireManualPlate(plateNumber);
+        Gate gate = requireOutageGate(gateCode, GateDirection.OUT);
+        String triggeredBy = "OUTAGE_OPERATOR:" + operatorId;
+        Session active = sessionRepository.findByPlateNumberAndStatus(plate, SessionStatus.ACTIVE).orElse(null);
+        if (active != null) {
+            if (occurredAt.isBefore(active.getEntryTime())) {
+                throw new IllegalArgumentException("Outage exit time cannot be before entry time");
+            }
+            active.setOutageExitEventId(clientEventId);
+            closeActive(active, gate, occurredAt, null, triggeredBy, null);
+            log.warn("Outage exit recorded: eventId={}, plate={}, occurredAt={}, gate={}, operator={}, note={}",
+                    clientEventId, plate, occurredAt, gateCode, operatorId, note);
+            return active.getId();
+        }
+        Session review = createUnmatchedExit(plate, gate, occurredAt, null, null, true);
+        review.setOutageExitEventId(clientEventId);
+        sessionRepository.save(review);
+        return review.getId();
+    }
+
+    private String requireManualPlate(String plateNumber) {
+        String plate = PlateNumbers.normalize(plateNumber);
+        if (plate == null || plate.isBlank()) {
+            throw new IllegalArgumentException("plateNumber is required");
+        }
+        return plate;
+    }
+
+    private Gate requireOutageGate(String gateCode, GateDirection expectedDirection) {
+        Gate gate = gateRepository.findByGateCode(gateCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Gate", gateCode));
+        if (gate.getDirection() != expectedDirection) {
+            throw new IllegalArgumentException("Gate " + gateCode + " is not an " + expectedDirection + " gate");
+        }
+        return gate;
+    }
+
+    private void validateOutageTimestamp(OffsetDateTime occurredAt) {
+        if (occurredAt == null) {
+            throw new IllegalArgumentException("occurredAt is required");
+        }
+        if (occurredAt.isAfter(OffsetDateTime.now().plusMinutes(5))) {
+            throw new IllegalArgumentException("Outage event time cannot be in the future");
+        }
     }
 
     private SessionClosedEventDTO buildSessionClosed(Session session, boolean whitelisted) {

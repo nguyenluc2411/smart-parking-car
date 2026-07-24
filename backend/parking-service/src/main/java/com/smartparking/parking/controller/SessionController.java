@@ -1,6 +1,7 @@
 package com.smartparking.parking.controller;
 
 import com.smartparking.parking.dto.request.ManualGateRequestDTO;
+import com.smartparking.parking.dto.request.OutageEventRequestDTO;
 import com.smartparking.parking.dto.request.SessionResolveRequestDTO;
 import com.smartparking.parking.dto.response.ApiResponse;
 import com.smartparking.parking.dto.response.PageResponseDTO;
@@ -74,6 +75,23 @@ public class SessionController {
             @AuthenticationPrincipal String operatorId) {
         UUID id = sessionService.manualExit(request.plateNumber(), request.gateId(),
                 request.note(), UUID.fromString(operatorId));
+        return ApiResponse.ok(sessionQueryService.getById(id));
+    }
+
+    /**
+     * Idempotent endpoint used by both the online auxiliary-gate screen and its offline PWA queue.
+     * The captured timestamp, not synchronization time, is authoritative.
+     */
+    @PostMapping("/outage-events")
+    public ApiResponse<SessionDetailResponseDTO> outageEvent(
+            @Valid @RequestBody OutageEventRequestDTO request,
+            @AuthenticationPrincipal String operatorId) {
+        UUID operator = UUID.fromString(operatorId);
+        UUID id = request.type() == OutageEventRequestDTO.EventType.ENTRY
+                ? sessionService.outageEntry(request.clientEventId(), request.plateNumber(),
+                        request.gateId(), request.occurredAt(), request.note(), operator)
+                : sessionService.outageExit(request.clientEventId(), request.plateNumber(),
+                        request.gateId(), request.occurredAt(), request.note(), operator);
         return ApiResponse.ok(sessionQueryService.getById(id));
     }
 }

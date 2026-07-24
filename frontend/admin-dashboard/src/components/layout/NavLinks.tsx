@@ -11,7 +11,8 @@ import {
   BarChart3,
   Users,
   Tags,
-  LayoutGrid,
+  WifiOff,
+  Map,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/authStore";
@@ -26,11 +27,12 @@ interface NavItem {
 }
 
 export const NAV: NavItem[] = [
+  { href: "/parking-map", label: "Quản lý bãi xe", icon: Map, roles: ["ADMIN"], group: "Quản lý" },
+  { href: "/outage", label: "Chế độ sự cố", icon: WifiOff, roles: ["OPERATOR", "ADMIN"], group: "Chính" },
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard, roles: ["OPERATOR", "ADMIN"], group: "Chính" },
   { href: "/sessions", label: "Phiên gửi xe", icon: Car, roles: ["OPERATOR", "ADMIN"], group: "Chính" },
   { href: "/billing", label: "Hóa đơn", icon: Receipt, roles: ["OPERATOR", "ADMIN"], group: "Chính" },
   { href: "/gates", label: "Cổng / Barie", icon: DoorOpen, roles: ["ADMIN"], group: "Quản lý" },
-  { href: "/slots", label: "Bãi xe / Slot", icon: LayoutGrid, roles: ["ADMIN"], group: "Quản lý" },
   { href: "/vehicles", label: "Whitelist / Blacklist", icon: ListChecks, roles: ["ADMIN"], group: "Quản lý" },
   { href: "/billing/rates", label: "Bảng giá", icon: Tags, roles: ["ADMIN"], group: "Quản lý" },
   { href: "/reports", label: "Báo cáo", icon: BarChart3, roles: ["ADMIN"], group: "Phân tích" },

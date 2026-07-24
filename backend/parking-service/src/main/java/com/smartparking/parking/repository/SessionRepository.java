@@ -22,12 +22,20 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
     /** Close-session: locate the single open session to close (BR-002-4 guarantees at most one). */
     Optional<Session> findByPlateNumberAndStatus(String plateNumber, SessionStatus status);
 
+    Optional<Session> findByOutageEntryEventId(UUID eventId);
+
+    Optional<Session> findByOutageExitEventId(UUID eventId);
+
     /** BR-006-5 exit dedup: the most recently exited session for a plate (to detect a repeat scan). */
     Optional<Session> findFirstByPlateNumberAndStatusInOrderByExitTimeDesc(
             String plateNumber, java.util.Collection<SessionStatus> statuses);
 
     /** Ground truth for slot reconciliation (BR-003-4). */
     List<Session> findByStatus(SessionStatus status);
+
+    boolean existsBySlotId(UUID slotId);
+
+    boolean existsByEntryGateIdOrExitGateId(UUID entryGateId, UUID exitGateId);
 
     /** Paged session search with optional filters ({@code GET /api/v1/sessions}). */
     @Query("""

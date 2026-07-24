@@ -108,6 +108,60 @@ class SessionServiceImplTest {
     // ----------------------------------------------------------------------------------------
 
     @Test
+    void outageEntry_preservesCapturedTimeAndIsIdempotentForReplay() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID operatorId = UUID.randomUUID();
+        Slot slot = Slot.builder()
+                .id(UUID.randomUUID()).slotCode("A01").zone("A").status(SlotStatus.EMPTY).build();
+        Gate auxiliary = Gate.builder()
+                .id(UUID.randomUUID()).gateCode("GATE_AUX_ENTRY").direction(GateDirection.IN)
+                .status(GateStatus.OPEN).hasBarrier(false).build();
+
+        when(sessionRepository.findByOutageEntryEventId(eventId)).thenReturn(Optional.empty());
+        when(gateRepository.findByGateCode("GATE_AUX_ENTRY")).thenReturn(Optional.of(auxiliary));
+        when(vehicleRepository.findByPlateNumber(PLATE)).thenReturn(Optional.empty());
+        when(sessionRepository.existsByPlateNumberAndStatusIn(any(), any())).thenReturn(false);
+        when(slotRepository.count()).thenReturn(10L);
+        when(slotRepository.countByStatus(SlotStatus.OCCUPIED)).thenReturn(0L);
+        when(slotRepository.findFirstAvailable(any(), any())).thenReturn(Optional.of(slot));
+        when(sessionRepository.save(any(Session.class))).thenAnswer(inv -> {
+            Session s = inv.getArgument(0);
+            if (s.getId() == null) s.setId(UUID.randomUUID());
+            return s;
+        });
+        when(sessionMapper.toSessionCreatedEvent(any(Session.class)))
+                .thenReturn(SessionCreatedEventDTO.builder().plateNumber(PLATE).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        service.outageEntry(eventId, PLATE, "GATE_AUX_ENTRY", DURING_HOURS, "mất điện", operatorId);
+
+        ArgumentCaptor<Session> captor = ArgumentCaptor.forClass(Session.class);
+        verify(sessionRepository, times(2)).save(captor.capture());
+        Session saved = captor.getAllValues().get(1);
+        assertEquals(DURING_HOURS, saved.getEntryTime());
+        assertEquals(eventId, saved.getOutageEntryEventId());
+        // A barrierless auxiliary gate emits only session.created, never a physical gate command.
+        verify(outboxEventRepository).save(any(OutboxEvent.class));
+    }
+
+    @Test
+    void outageEntry_replayedEventReturnsExistingSessionWithoutCreatingAnother() {
+        UUID eventId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Session existing = Session.builder().id(sessionId).plateNumber(PLATE)
+                .entryTime(DURING_HOURS).status(SessionStatus.ACTIVE)
+                .outageEntryEventId(eventId).build();
+        when(sessionRepository.findByOutageEntryEventId(eventId)).thenReturn(Optional.of(existing));
+
+        UUID result = service.outageEntry(eventId, PLATE, "GATE_AUX_ENTRY",
+                DURING_HOURS, null, UUID.randomUUID());
+
+        assertEquals(sessionId, result);
+        verify(sessionRepository, never()).save(any());
+        verify(gateRepository, never()).findByGateCode(any());
+    }
+
+    @Test
     void createsSession_forRegularVehicle_duringOperatingHours() throws Exception {
         Slot slot = Slot.builder()
                 .id(UUID.randomUUID()).slotCode("A01").zone("A").status(SlotStatus.EMPTY).build();

@@ -1,6 +1,7 @@
 package com.smartparking.parking.service;
 
 import com.smartparking.parking.dto.event.PlateDetectedEventDTO;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
@@ -51,6 +52,17 @@ public interface SessionService {
      * @return the affected session id
      */
     UUID manualExit(String plateNumber, String gateCode, String note, UUID operatorId);
+
+    /**
+     * Replay an entry captured by the outage PWA. The real occurrence time is retained for billing
+     * and the client event id makes retries safe.
+     */
+    UUID outageEntry(UUID clientEventId, String plateNumber, String gateCode,
+                     OffsetDateTime occurredAt, String note, UUID operatorId);
+
+    /** Replay an outage exit; closes the matching active session at the captured occurrence time. */
+    UUID outageExit(UUID clientEventId, String plateNumber, String gateCode,
+                    OffsetDateTime occurredAt, String note, UUID operatorId);
 
     /**
      * BR-005-2 (Phase 2 — pay-before-exit): release the exit barrier for a casual vehicle once billing

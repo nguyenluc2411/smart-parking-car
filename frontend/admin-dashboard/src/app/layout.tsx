@@ -18,6 +18,10 @@ export default function RootLayout({
       className={`${GeistSans.variable} ${GeistMono.variable}`} 
       suppressHydrationWarning
     >
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#0f766e" />
+      </head>
       <body className="font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
