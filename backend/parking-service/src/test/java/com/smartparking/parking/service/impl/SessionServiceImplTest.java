@@ -162,6 +162,39 @@ class SessionServiceImplTest {
     }
 
     @Test
+    void outageExit_atBarrierlessGate_closesSessionWithoutEmittingGateCommand() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID slotId = UUID.randomUUID();
+        Session active = Session.builder()
+                .id(UUID.randomUUID()).plateNumber(PLATE).slotId(slotId)
+                .entryTime(DURING_HOURS.minusHours(1)).status(SessionStatus.ACTIVE).build();
+        Slot slot = Slot.builder()
+                .id(slotId).slotCode("A01").zone("A")
+                .status(SlotStatus.OCCUPIED).currentSessionId(active.getId()).build();
+        Gate auxiliary = Gate.builder()
+                .id(UUID.randomUUID()).gateCode("GATE_AUX_EXIT").direction(GateDirection.OUT)
+                .status(GateStatus.OPEN).hasBarrier(false).build();
+
+        when(sessionRepository.findByOutageExitEventId(eventId)).thenReturn(Optional.empty());
+        when(gateRepository.findByGateCode("GATE_AUX_EXIT")).thenReturn(Optional.of(auxiliary));
+        when(sessionRepository.findByPlateNumberAndStatus(PLATE, SessionStatus.ACTIVE))
+                .thenReturn(Optional.of(active));
+        when(slotRepository.findById(slotId)).thenReturn(Optional.of(slot));
+        when(sessionMapper.toSessionClosedEvent(active))
+                .thenReturn(SessionClosedEventDTO.builder().sessionId(active.getId()).plateNumber(PLATE).build());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        UUID id = service.outageExit(eventId, PLATE, "GATE_AUX_EXIT", DURING_HOURS, "mất điện", UUID.randomUUID());
+
+        assertEquals(active.getId(), id);
+        assertEquals(SessionStatus.CLOSED, active.getStatus());
+        assertEquals(SlotStatus.EMPTY, slot.getStatus());
+        assertEquals(eventId, active.getOutageExitEventId());
+        // A barrierless auxiliary gate must never be commanded to open — only session.closed goes out.
+        verify(outboxEventRepository).save(any(OutboxEvent.class));
+    }
+
+    @Test
     void createsSession_forRegularVehicle_duringOperatingHours() throws Exception {
         Slot slot = Slot.builder()
                 .id(UUID.randomUUID()).slotCode("A01").zone("A").status(SlotStatus.EMPTY).build();
